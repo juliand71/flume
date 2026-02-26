@@ -4,11 +4,10 @@
 .LSOverride
 
 # ── Xcode / Swift ────────────────────────────────────────────────────────────
-ios/build/
-ios/*.xcodeproj/xcuserdata/
-ios/*.xcworkspace/xcuserdata/
-ios/*.xcworkspace/xcshareddata/
-ios/DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcworkspace/xcshareddata/
+DerivedData/
 *.hmap
 *.ipa
 *.dSYM.zip
