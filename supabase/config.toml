@@ -1,0 +1,14 @@
+# Supabase local dev config
+# Run `supabase start` to spin up a local Postgres + Auth stack
+
+[api]
+port = 54321
+
+[db]
+port = 54322
+
+[studio]
+port = 54323
+
+[inbucket]
+port = 54324

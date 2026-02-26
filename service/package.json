@@ -1,0 +1,22 @@
+{
+  "name": "flume-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Flume Plaid integration service (Railway)",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.0.0",
+    "fastify": "^4.0.0",
+    "plaid": "^26.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
