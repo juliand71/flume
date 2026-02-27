@@ -7,6 +7,15 @@ port = 54321
 [db]
 port = 54322
 
+# Declarative schemas — order matters for foreign key dependencies
+[db.migrations]
+schema_paths = [
+  "./schemas/profiles.sql",
+  "./schemas/plaid_items.sql",
+  "./schemas/accounts.sql",
+  "./schemas/transactions.sql",
+]
+
 [studio]
 port = 54323
 

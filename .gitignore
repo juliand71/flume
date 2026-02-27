@@ -30,6 +30,7 @@ service/dist/
 # ── Supabase local dev ───────────────────────────────────────────────────────
 supabase/.temp/
 supabase/.branches/
+supabase/node_modules
 
 # ── Editor / tools ───────────────────────────────────────────────────────────
 .vscode/
