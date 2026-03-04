@@ -6,6 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		B9691ED12F57CDE100D4646D /* LinkKit in Frameworks */ = {isa = PBXBuildFile; productRef = B9691ED02F57CDE100D4646D /* LinkKit */; };
+		B9691ED42F57CF4B00D4646D /* Auth in Frameworks */ = {isa = PBXBuildFile; productRef = B9691ED32F57CF4B00D4646D /* Auth */; };
+		B9691ED62F57CF4B00D4646D /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = B9691ED52F57CF4B00D4646D /* Supabase */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		B9B382BB2F50DAFC00261F27 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -24,6 +30,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		B9691E9F2F57CBD300D4646D /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		B9691EA02F57CBD300D4646D /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		B9B382AB2F50DAFA00261F27 /* Flume.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Flume.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B9B382BA2F50DAFC00261F27 /* FlumeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FlumeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B9B382C42F50DAFC00261F27 /* FlumeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FlumeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -52,6 +60,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B9691ED42F57CF4B00D4646D /* Auth in Frameworks */,
+				B9691ED12F57CDE100D4646D /* LinkKit in Frameworks */,
+				B9691ED62F57CF4B00D4646D /* Supabase in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -72,6 +83,15 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		B9691E9E2F57CBCE00D4646D /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				B9691E9F2F57CBD300D4646D /* Debug.xcconfig */,
+				B9691EA02F57CBD300D4646D /* Release.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
 		B9B382A22F50DAFA00261F27 = {
 			isa = PBXGroup;
 			children = (
@@ -79,6 +99,7 @@
 				B9B382BD2F50DAFC00261F27 /* FlumeTests */,
 				B9B382C72F50DAFC00261F27 /* FlumeUITests */,
 				B9B382AC2F50DAFA00261F27 /* Products */,
+				B9691E9E2F57CBCE00D4646D /* Config */,
 			);
 			sourceTree = "<group>";
 		};
@@ -112,6 +133,9 @@
 			);
 			name = Flume;
 			packageProductDependencies = (
+				B9691ED02F57CDE100D4646D /* LinkKit */,
+				B9691ED32F57CF4B00D4646D /* Auth */,
+				B9691ED52F57CF4B00D4646D /* Supabase */,
 			);
 			productName = Flume;
 			productReference = B9B382AB2F50DAFA00261F27 /* Flume.app */;
@@ -195,6 +219,10 @@
 			);
 			mainGroup = B9B382A22F50DAFA00261F27;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B9691ECF2F57CDE100D4646D /* XCRemoteSwiftPackageReference "plaid-link-ios-spm" */,
+				B9691ED22F57CF4B00D4646D /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B9B382AC2F50DAFA00261F27 /* Products */;
 			projectDirPath = "";
@@ -271,6 +299,7 @@
 /* Begin XCBuildConfiguration section */
 		B9B382CC2F50DAFC00261F27 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = B9691E9F2F57CBD300D4646D /* Debug.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -333,6 +362,7 @@
 		};
 		B9B382CD2F50DAFC00261F27 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = B9691EA02F57CBD300D4646D /* Release.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -392,7 +422,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 8GK36YBUNZ;
+				DEVELOPMENT_TEAM = RA69B3K868;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -436,7 +466,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 8GK36YBUNZ;
+				DEVELOPMENT_TEAM = RA69B3K868;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -615,6 +645,43 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B9691ECF2F57CDE100D4646D /* XCRemoteSwiftPackageReference "plaid-link-ios-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/plaid/plaid-link-ios-spm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 6.0.4;
+			};
+		};
+		B9691ED22F57CF4B00D4646D /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.5.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B9691ED02F57CDE100D4646D /* LinkKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B9691ECF2F57CDE100D4646D /* XCRemoteSwiftPackageReference "plaid-link-ios-spm" */;
+			productName = LinkKit;
+		};
+		B9691ED32F57CF4B00D4646D /* Auth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B9691ED22F57CF4B00D4646D /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Auth;
+		};
+		B9691ED52F57CF4B00D4646D /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B9691ED22F57CF4B00D4646D /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = B9B382A32F50DAFA00261F27 /* Project object */;
 }

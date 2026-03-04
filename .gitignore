@@ -27,6 +27,9 @@ service/dist/
 !.env.example
 !service/.env.example
 
+# ── iOS xcconfig (contains secrets) ─────────────────────────────────────────
+ios/Flume/Config/*.xcconfig
+
 # ── Supabase local dev ───────────────────────────────────────────────────────
 supabase/.temp/
 supabase/.branches/

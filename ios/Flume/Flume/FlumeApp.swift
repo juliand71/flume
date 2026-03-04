@@ -6,27 +6,18 @@
 //
 
 import SwiftUI
-import SwiftData
 
 @main
 struct FlumeApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    @State private var authService = AuthService()
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
+                .environment(authService)
+                .task {
+                    await authService.initialize()
+                }
         }
-        .modelContainer(sharedModelContainer)
     }
 }
