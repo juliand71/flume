@@ -15,24 +15,19 @@ struct PlaidLinkFlow: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController {
         let vc = UIViewController()
 
-        let linkConfiguration = LinkTokenConfiguration(token: linkToken) { result in
-            switch result {
-            case .success(let success):
-                let publicToken = success.publicToken
-                let institutionName = success.metadata.institution.name
-                let institutionId = success.metadata.institution.id
-                onResult(.success(
-                    publicToken: publicToken,
-                    institutionName: institutionName,
-                    institutionId: institutionId
-                ))
-            case .failure(let error):
-                onResult(.failure(error.localizedDescription))
-            }
+        var linkConfiguration = LinkTokenConfiguration(token: linkToken) { success in
+            let publicToken = success.publicToken
+            let institutionName = success.metadata.institution.name
+            let institutionId = success.metadata.institution.id
+            onResult(.success(
+                publicToken: publicToken,
+                institutionName: institutionName,
+                institutionId: institutionId
+            ))
         }
-        linkConfiguration.onExit = { exit in
-            if exit.error != nil {
-                onResult(.failure(exit.error?.localizedDescription ?? "Unknown error"))
+        linkConfiguration.onExit = { (exit: LinkExit) in
+            if let error = exit.error {
+                onResult(.failure(error.errorMessage))
             } else {
                 onResult(.cancelled)
             }
