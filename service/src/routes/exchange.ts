@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { authenticateUser } from '../lib/auth.js'
 import { plaid } from '../lib/plaid.js'
 import { supabase } from '../lib/supabase.js'
+import { syncTransactions } from '../lib/sync.js'
 
 interface ExchangeBody {
   public_token: string
@@ -69,6 +70,9 @@ export async function exchangeRoutes(app: FastifyInstance) {
       if (accountsError) {
         throw { statusCode: 500, message: `Failed to store accounts: ${accountsError.message}` }
       }
+
+      // Sync transactions immediately so users see data right away
+      await syncTransactions(plaidItem.id)
 
       return { success: true, plaid_item_id: plaidItem.id }
     } catch (err: any) {

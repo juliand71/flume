@@ -1,4 +1,5 @@
 import Foundation
+import Supabase
 
 @Observable
 final class AccountsViewModel {
@@ -7,6 +8,7 @@ final class AccountsViewModel {
     var errorMessage: String?
 
     private let repository = AccountRepository()
+    private let client = SupabaseService.shared
 
     func fetchAccounts() async {
         isLoading = true
@@ -17,5 +19,27 @@ final class AccountsViewModel {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    func syncAllItems() async {
+        do {
+            let accessToken = try await client.auth.session.accessToken
+
+            let items: [PlaidItem] = try await client.from("plaid_items")
+                .select("id, user_id, plaid_item_id, institution_name, created_at")
+                .execute()
+                .value
+
+            for item in items {
+                try await APIService.shared.syncTransactions(
+                    plaidItemId: item.id.uuidString,
+                    accessToken: accessToken
+                )
+            }
+
+            await fetchAccounts()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }

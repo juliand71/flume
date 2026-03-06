@@ -29,6 +29,7 @@ struct AccountsListView: View {
         }
         .task {
             await viewModel.fetchAccounts()
+            await viewModel.syncAllItems()
         }
         .onReceive(NotificationCenter.default.publisher(for: .accountsDidChange)) { _ in
             Task { await viewModel.fetchAccounts() }
