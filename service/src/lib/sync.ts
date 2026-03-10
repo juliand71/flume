@@ -1,6 +1,18 @@
 import { plaid } from './plaid.js'
 import { supabase } from './supabase.js'
 
+interface TransactionRow {
+  account_id: string | undefined
+  user_id: string
+  plaid_transaction_id: string
+  name: string
+  amount: number
+  iso_currency_code: string
+  category: string[] | null
+  date: string
+  pending: boolean
+}
+
 export async function syncTransactions(plaidItemInternalId: string) {
   // Fetch the plaid item to get access_token, cursor, and user_id
   const { data: item, error: itemError } = await supabase
@@ -37,7 +49,7 @@ export async function syncTransactions(plaidItemInternalId: string) {
     // Upsert added + modified transactions
     const toUpsert = [...added, ...modified]
     if (toUpsert.length > 0) {
-      const rows = toUpsert.map((txn) => ({
+      const rows: TransactionRow[] = toUpsert.map((txn) => ({
         account_id: accountMap.get(txn.account_id),
         user_id: item.user_id,
         plaid_transaction_id: txn.transaction_id,
@@ -51,7 +63,7 @@ export async function syncTransactions(plaidItemInternalId: string) {
 
       const { error: upsertError } = await supabase
         .from('transactions')
-        .upsert(rows as any[], { onConflict: 'plaid_transaction_id' })
+        .upsert(rows, { onConflict: 'plaid_transaction_id' })
 
       if (upsertError) {
         throw { statusCode: 500, message: `Failed to upsert transactions: ${upsertError.message}` }
@@ -91,7 +103,7 @@ export async function syncTransactions(plaidItemInternalId: string) {
   })
 
   for (const account of balanceResponse.data.accounts) {
-    await supabase
+    const { error: balanceError } = await supabase
       .from('accounts')
       .update({
         current_balance: account.balances.current,
@@ -99,5 +111,9 @@ export async function syncTransactions(plaidItemInternalId: string) {
         updated_at: new Date().toISOString(),
       })
       .eq('plaid_account_id', account.account_id)
+
+    if (balanceError) {
+      console.warn(`Failed to update balance for account ${account.account_id}: ${balanceError.message}`)
+    }
   }
 }

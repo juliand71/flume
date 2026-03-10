@@ -9,6 +9,7 @@ final class AccountsViewModel {
 
     private let repository = AccountRepository()
     private let client = SupabaseService.shared
+    private var isSyncing = false
 
     func fetchAccounts() async {
         isLoading = true
@@ -22,6 +23,9 @@ final class AccountsViewModel {
     }
 
     func syncAllItems() async {
+        guard !isSyncing else { return }
+        isSyncing = true
+        defer { isSyncing = false }
         do {
             let accessToken = try await client.auth.session.accessToken
 

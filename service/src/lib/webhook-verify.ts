@@ -36,7 +36,11 @@ export async function verifyPlaidWebhook(
 
   // Verify the body hash matches
   const expectedHash = createHash('sha256').update(body).digest('hex')
-  const claimedHash = (payload as any).request_body_sha256
+  const claims = payload as Record<string, unknown>
+  const claimedHash = claims.request_body_sha256
+  if (typeof claimedHash !== 'string') {
+    throw { statusCode: 401, message: 'Missing request_body_sha256 claim in webhook JWT' }
+  }
   if (expectedHash !== claimedHash) {
     throw { statusCode: 401, message: 'Webhook body hash mismatch' }
   }
