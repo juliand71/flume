@@ -12,6 +12,16 @@ interface ExchangeBody {
   }
 }
 
+function resolveAccountRole(
+  type: string,
+  subtype: string | null
+): 'checking' | 'savings' | 'credit_card' | null {
+  if (type === 'depository' && subtype === 'checking') return 'checking'
+  if (type === 'depository' && subtype === 'savings') return 'savings'
+  if (type === 'credit') return 'credit_card'
+  return null
+}
+
 export async function exchangeRoutes(app: FastifyInstance) {
   // POST /exchange — exchange a Plaid public token for an access token
   app.post('/', async (request, reply) => {
@@ -63,12 +73,33 @@ export async function exchangeRoutes(app: FastifyInstance) {
         iso_currency_code: account.balances.iso_currency_code ?? 'USD',
       }))
 
-      const { error: accountsError } = await supabase
+      const { data: upsertedAccounts, error: accountsError } = await supabase
         .from('accounts')
         .upsert(accountRows, { onConflict: 'plaid_account_id' })
+        .select('id, type, subtype')
 
       if (accountsError) {
         throw { statusCode: 500, message: `Failed to store accounts: ${accountsError.message}` }
+      }
+
+      // Assign account roles based on Plaid type/subtype
+      const roleRows = (upsertedAccounts ?? [])
+        .map((a: { id: string; type: string; subtype: string | null }) => ({
+          account_id: a.id,
+          user_id: userId,
+          role: resolveAccountRole(a.type, a.subtype),
+        }))
+        .filter((r): r is { account_id: string; user_id: string; role: 'checking' | 'savings' | 'credit_card' } => r.role !== null)
+        .map(({ account_id, user_id, role }) => ({ account_id, user_id, account_role: role }))
+
+      if (roleRows.length > 0) {
+        const { error: rolesError } = await supabase
+          .from('account_roles')
+          .upsert(roleRows, { onConflict: 'account_id' })
+
+        if (rolesError) {
+          throw { statusCode: 500, message: `Failed to store account roles: ${rolesError.message}` }
+        }
       }
 
       // Sync transactions immediately so users see data right away

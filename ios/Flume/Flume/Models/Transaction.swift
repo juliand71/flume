@@ -1,5 +1,10 @@
 import Foundation
 
+struct PersonalFinanceCategory: Codable, Sendable {
+    let primary: String
+    let detailed: String
+}
+
 struct Transaction: Codable, Identifiable, Sendable {
     let id: UUID
     let accountId: UUID
@@ -9,6 +14,7 @@ struct Transaction: Codable, Identifiable, Sendable {
     let amount: Decimal
     let isoCurrencyCode: String
     let category: [String]?
+    let personalFinanceCategory: PersonalFinanceCategory?
     let date: String
     let pending: Bool
     let createdAt: String
@@ -22,6 +28,7 @@ struct Transaction: Codable, Identifiable, Sendable {
         case amount
         case isoCurrencyCode = "iso_currency_code"
         case category
+        case personalFinanceCategory = "personal_finance_category"
         case date
         case pending
         case createdAt = "created_at"

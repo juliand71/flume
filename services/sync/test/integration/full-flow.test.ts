@@ -77,11 +77,26 @@ describe('Full flow: link → exchange → sync', () => {
     })
 
     const insertChain = createChain({ data: { id: INTERNAL_ITEM_ID }, error: null })
+    const syncItemChain = createChain({
+      data: { access_token: ACCESS_TOKEN, cursor: null, user_id: USER_ID },
+      error: null,
+    })
+    const exchangeCursorChain = createChain({ data: null, error: null })
     const accountsUpsertChain = createChain({ data: null, error: null })
+    const exchangeTxnChain = createChain({ data: null, error: null })
+    exchangeTxnChain.upsert = vi.fn().mockReturnValue(createChain({ data: null, error: null }))
 
+    let exchangePlaidItemsCalls = 0
     mockFrom.mockImplementation((table: string) => {
-      if (table === 'plaid_items') return insertChain
+      if (table === 'plaid_items') {
+        exchangePlaidItemsCalls++
+        // 1st: exchange insert, 2nd: syncTransactions select, 3rd+: cursor update
+        if (exchangePlaidItemsCalls === 1) return insertChain
+        if (exchangePlaidItemsCalls === 2) return syncItemChain
+        return exchangeCursorChain
+      }
       if (table === 'accounts') return accountsUpsertChain
+      if (table === 'transactions') return exchangeTxnChain
       return createChain({ data: null, error: null })
     })
 
@@ -98,6 +113,25 @@ describe('Full flow: link → exchange → sync', () => {
             balances: { current: 2000, available: 1800, iso_currency_code: 'USD' },
           },
         ],
+      },
+    })
+
+    mockTxnSync.mockResolvedValue({
+      data: {
+        added: [{
+          account_id: 'plaid-acc-flow',
+          transaction_id: 'txn-exchange-1',
+          name: 'Exchange Coffee',
+          amount: 3.5,
+          iso_currency_code: 'USD',
+          category: ['Food'],
+          date: '2024-02-01',
+          pending: false,
+        }],
+        modified: [],
+        removed: [],
+        next_cursor: 'exchange-cursor-1',
+        has_more: false,
       },
     })
 

@@ -7,7 +7,6 @@ final class AccountsViewModel {
     var isLoading = false
     var errorMessage: String?
 
-    private let repository = AccountRepository()
     private let client = SupabaseService.shared
     private var isSyncing = false
 
@@ -15,7 +14,8 @@ final class AccountsViewModel {
         isLoading = true
         errorMessage = nil
         do {
-            accounts = try await repository.fetchAccounts()
+            let accessToken = try await client.auth.session.accessToken
+            accounts = try await BudgetAPIService.shared.fetchAccounts(accessToken: accessToken)
         } catch {
             errorMessage = error.localizedDescription
         }

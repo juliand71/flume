@@ -10,6 +10,7 @@ vi.mock('../../src/lib/plaid.js', () => ({
   plaid: {
     itemPublicTokenExchange: vi.fn(),
     accountsGet: vi.fn(),
+    transactionsSync: vi.fn(),
   },
 }))
 
@@ -25,6 +26,7 @@ import { supabase } from '../../src/lib/supabase.js'
 const mockAuth = authenticateUser as ReturnType<typeof vi.fn>
 const mockExchange = plaid.itemPublicTokenExchange as ReturnType<typeof vi.fn>
 const mockAccountsGet = plaid.accountsGet as ReturnType<typeof vi.fn>
+const mockTxnSync = plaid.transactionsSync as ReturnType<typeof vi.fn>
 const mockFrom = supabase.from as ReturnType<typeof vi.fn>
 
 const validBody = {
@@ -39,18 +41,40 @@ async function buildApp() {
   return app
 }
 
-function setupHappyPath() {
+function setupHappyPath(accountType = 'depository', accountSubtype = 'checking') {
   mockAuth.mockResolvedValue('user-1')
   mockExchange.mockResolvedValue({
     data: { access_token: 'access-tok', item_id: 'plaid-item-1' },
   })
 
+  // Exchange inserts plaid_item, then syncTransactions reads it back + updates cursor
   const insertChain = createChain({ data: { id: 'internal-item-1' }, error: null })
-  const upsertChain = createChain({ data: null, error: null })
+  const syncItemChain = createChain({
+    data: { access_token: 'access-tok', cursor: null, user_id: 'user-1' },
+    error: null,
+  })
+  const cursorUpdateChain = createChain({ data: null, error: null })
+  // accounts upsert now selects back id/type/subtype for role assignment
+  const upsertChain = createChain({
+    data: [{ id: 'acct-1', type: accountType, subtype: accountSubtype }],
+    error: null,
+  })
+  const rolesChain = createChain({ data: null, error: null })
+  const txnChain = createChain({ data: null, error: null })
+  txnChain.upsert = vi.fn().mockReturnValue(createChain({ data: null, error: null }))
 
+  let plaidItemsCalls = 0
   mockFrom.mockImplementation((table: string) => {
-    if (table === 'plaid_items') return insertChain
+    if (table === 'plaid_items') {
+      plaidItemsCalls++
+      // 1st: exchange insert, 2nd: syncTransactions select, 3rd+: cursor update
+      if (plaidItemsCalls === 1) return insertChain
+      if (plaidItemsCalls === 2) return syncItemChain
+      return cursorUpdateChain
+    }
     if (table === 'accounts') return upsertChain
+    if (table === 'account_roles') return rolesChain
+    if (table === 'transactions') return txnChain
     return createChain({ data: null, error: null })
   })
 
@@ -61,14 +85,35 @@ function setupHappyPath() {
           account_id: 'plaid-acc-1',
           name: 'Checking',
           official_name: 'Chase Checking',
-          type: 'depository',
-          subtype: 'checking',
+          type: accountType,
+          subtype: accountSubtype,
           mask: '1234',
           balances: { current: 5000, available: 4800, iso_currency_code: 'USD' },
         },
       ],
     },
   })
+
+  mockTxnSync.mockResolvedValue({
+    data: {
+      added: [{
+        account_id: 'plaid-acc-1',
+        transaction_id: 'txn-1',
+        name: 'Coffee',
+        amount: 4.5,
+        iso_currency_code: 'USD',
+        category: ['Food'],
+        date: '2024-01-15',
+        pending: false,
+      }],
+      modified: [],
+      removed: [],
+      next_cursor: 'cur-1',
+      has_more: false,
+    },
+  })
+
+  return { rolesChain }
 }
 
 describe('POST /exchange', () => {
@@ -83,6 +128,47 @@ describe('POST /exchange', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ success: true, plaid_item_id: 'internal-item-1' })
+  })
+
+  it('assigns checking role for depository/checking account', async () => {
+    const { rolesChain } = setupHappyPath('depository', 'checking')
+    const app = await buildApp()
+    await app.inject({ method: 'POST', url: '/exchange', payload: validBody })
+
+    expect(rolesChain.upsert).toHaveBeenCalledWith(
+      [{ account_id: 'acct-1', user_id: 'user-1', account_role: 'checking' }],
+      { onConflict: 'account_id' }
+    )
+  })
+
+  it('assigns savings role for depository/savings account', async () => {
+    const { rolesChain } = setupHappyPath('depository', 'savings')
+    const app = await buildApp()
+    await app.inject({ method: 'POST', url: '/exchange', payload: validBody })
+
+    expect(rolesChain.upsert).toHaveBeenCalledWith(
+      [{ account_id: 'acct-1', user_id: 'user-1', account_role: 'savings' }],
+      { onConflict: 'account_id' }
+    )
+  })
+
+  it('assigns credit_card role for credit account', async () => {
+    const { rolesChain } = setupHappyPath('credit', 'credit card')
+    const app = await buildApp()
+    await app.inject({ method: 'POST', url: '/exchange', payload: validBody })
+
+    expect(rolesChain.upsert).toHaveBeenCalledWith(
+      [{ account_id: 'acct-1', user_id: 'user-1', account_role: 'credit_card' }],
+      { onConflict: 'account_id' }
+    )
+  })
+
+  it('skips role assignment for unsupported account types', async () => {
+    const { rolesChain } = setupHappyPath('investment', 'brokerage')
+    const app = await buildApp()
+    await app.inject({ method: 'POST', url: '/exchange', payload: validBody })
+
+    expect(rolesChain.upsert).not.toHaveBeenCalled()
   })
 
   it('returns 400 on missing public_token', async () => {
@@ -186,5 +272,37 @@ describe('POST /exchange', () => {
 
     expect(res.statusCode).toBe(500)
     expect(res.json()).toEqual({ error: 'Failed to store accounts: accounts upsert failed' })
+  })
+
+  it('returns 500 on account_roles upsert failure', async () => {
+    mockAuth.mockResolvedValue('user-1')
+    mockExchange.mockResolvedValue({
+      data: { access_token: 'access-tok', item_id: 'plaid-item-1' },
+    })
+
+    const insertChain = createChain({ data: { id: 'internal-item-1' }, error: null })
+    const upsertChain = createChain({ data: [{ id: 'acct-1', type: 'depository', subtype: 'checking' }], error: null })
+    const rolesChain = createChain({ data: null, error: { message: 'roles upsert failed' } })
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'plaid_items') return insertChain
+      if (table === 'accounts') return upsertChain
+      if (table === 'account_roles') return rolesChain
+      return createChain({ data: null, error: null })
+    })
+
+    mockAccountsGet.mockResolvedValue({
+      data: { accounts: [{ account_id: 'a', name: 'X', official_name: null, type: 'depository', subtype: 'checking', mask: '0000', balances: { current: 0, available: 0, iso_currency_code: 'USD' } }] },
+    })
+
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/exchange',
+      payload: validBody,
+    })
+
+    expect(res.statusCode).toBe(500)
+    expect(res.json()).toEqual({ error: 'Failed to store account roles: roles upsert failed' })
   })
 })

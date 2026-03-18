@@ -1,3 +1,5 @@
+import { vi } from 'vitest'
+
 /**
  * Creates a chainable mock that mimics the Supabase query builder pattern.
  * Configure per-call results by setting up `supabase.from` mock implementations.

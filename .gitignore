@@ -15,9 +15,13 @@ DerivedData/
 *.xccheckout
 *.moved-aside
 
-# ── Node / service ───────────────────────────────────────────────────────────
-service/node_modules/
-service/dist/
+# ── Node / sync service ──────────────────────────────────────────────────────
+services/sync/node_modules/
+services/sync/dist/
+
+# ── Go / API service ────────────────────────────────────────────────────────
+services/api/server
+services/api/tmp/
 
 # ── Environment variables ────────────────────────────────────────────────────
 .env
@@ -25,7 +29,8 @@ service/dist/
 .env.*.local
 # keep examples committed
 !.env.example
-!service/.env.example
+!services/sync/.env.example
+!services/api/.env.example
 
 # ── iOS xcconfig (contains secrets) ─────────────────────────────────────────
 ios/Flume/Config/*.xcconfig

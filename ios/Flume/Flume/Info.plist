@@ -8,5 +8,7 @@
     <string>$(SUPABASE_ANON_KEY)</string>
     <key>RAILWAY_SERVICE_URL</key>
     <string>$(RAILWAY_SERVICE_URL)</string>
+    <key>BUDGET_API_URL</key>
+    <string>$(BUDGET_API_URL)</string>
 </dict>
 </plist>
