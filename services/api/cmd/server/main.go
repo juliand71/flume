@@ -59,6 +59,36 @@ func main() {
 		r.Use(auth.Middleware(keys))
 		r.Get("/budget/accounts", handler.ListAccounts(pool))
 		r.Patch("/budget/accounts/{id}/role", handler.UpdateAccountRole(pool))
+
+		// Income streams
+		r.Get("/budget/income-streams", handler.ListIncomeStreams(pool))
+		r.Post("/budget/income-streams", handler.CreateIncomeStream(pool))
+		r.Patch("/budget/income-streams/{id}", handler.UpdateIncomeStream(pool))
+		r.Delete("/budget/income-streams/{id}", handler.DeleteIncomeStream(pool))
+
+		// Budget periods
+		r.Get("/budget/current-period", handler.GetCurrentPeriod(pool))
+		r.Get("/budget/periods", handler.ListPeriods(pool))
+		r.Post("/budget/periods", handler.CreatePeriod(pool))
+		r.Patch("/budget/periods/{id}", handler.UpdatePeriod(pool))
+
+		// Category summary
+		r.Get("/budget/category-summary", handler.GetCategorySummary(pool))
+
+		// Transactions
+		r.Get("/budget/transactions", handler.ListTransactions(pool))
+		r.Post("/budget/transactions/{id}/override", handler.OverrideTransactionCategory(pool))
+
+		// Category mappings
+		r.Get("/budget/categories", handler.ListCategoryMappings(pool))
+		r.Post("/budget/categories", handler.CreateCategoryMapping(pool))
+
+		// Savings goals
+		r.Get("/budget/savings-goals", handler.ListSavingsGoals(pool))
+		r.Post("/budget/savings-goals", handler.CreateSavingsGoal(pool))
+		r.Post("/budget/savings-goals/fill", handler.FillSavingsGoals(pool))
+		r.Patch("/budget/savings-goals/{id}", handler.UpdateSavingsGoal(pool))
+		r.Delete("/budget/savings-goals/{id}", handler.DeleteSavingsGoal(pool))
 	})
 
 	srv := &http.Server{
