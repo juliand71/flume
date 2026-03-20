@@ -64,7 +64,9 @@ func GetCategorySummary(pool *pgxpool.Pool) http.HandlerFunc {
 			{Category: "savings", Target: p.SavingsTarget, Actual: actuals["savings"]},
 		}
 
-		surplus := actuals["income"] - actuals["fixed"] - actuals["flex"]
+		// Plaid convention: income is negative, expenses are positive.
+		// Negate income to get a positive number, then subtract expenses.
+		surplus := -actuals["income"] - actuals["fixed"] - actuals["flex"]
 
 		resp := categorySummaryResponse{
 			PeriodID:   p.ID,

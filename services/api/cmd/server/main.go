@@ -57,6 +57,11 @@ func main() {
 	// Authenticated routes
 	r.Group(func(r chi.Router) {
 		r.Use(auth.Middleware(keys))
+
+		// Onboarding
+		r.Get("/onboarding/status", handler.GetOnboardingStatus(pool))
+		r.Patch("/onboarding/step", handler.UpdateOnboardingStep(pool))
+
 		r.Get("/budget/accounts", handler.ListAccounts(pool))
 		r.Patch("/budget/accounts/{id}/role", handler.UpdateAccountRole(pool))
 
@@ -74,6 +79,11 @@ func main() {
 
 		// Category summary
 		r.Get("/budget/category-summary", handler.GetCategorySummary(pool))
+
+		// Sync status + income detection + budget suggestion (onboarding)
+		r.Get("/budget/sync-status", handler.GetSyncStatus(pool))
+		r.Get("/budget/detect-income", handler.DetectIncome(pool))
+		r.Post("/budget/suggest-period", handler.SuggestPeriod(pool))
 
 		// Transactions
 		r.Get("/budget/transactions", handler.ListTransactions(pool))

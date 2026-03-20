@@ -108,7 +108,7 @@ func GetCurrentPeriod(pool *pgxpool.Pool) http.HandlerFunc {
 			ActualFixed:    actualFixed,
 			ActualFlex:     actualFlex,
 			ActualSavings:  actualSavings,
-			Surplus:        actualIncome - actualFixed - actualFlex,
+			Surplus:        -actualIncome - actualFixed - actualFlex,
 		}
 
 		w.Header().Set("Content-Type", "application/json")

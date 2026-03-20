@@ -10,14 +10,27 @@ import SwiftUI
 @main
 struct FlumeApp: App {
     @State private var authService = AuthService()
+    @State private var showSplash = true
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environment(authService)
-                .task {
-                    await authService.initialize()
+            ZStack {
+                RootView()
+                    .environment(authService)
+                    .task {
+                        await authService.initialize()
+                    }
+                    .opacity(showSplash ? 0 : 1)
+
+                if showSplash {
+                    SplashView {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            showSplash = false
+                        }
+                    }
+                    .transition(.opacity)
                 }
+            }
         }
     }
 }

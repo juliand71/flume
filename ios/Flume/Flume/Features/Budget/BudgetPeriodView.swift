@@ -24,7 +24,7 @@ struct BudgetPeriodView: View {
                         } label: {
                             CategoryBarView(
                                 title: "Source",
-                                actual: period.actualIncome ?? 0,
+                                actual: -(period.actualIncome ?? 0),
                                 target: period.incomeTarget,
                                 tint: .blue
                             )

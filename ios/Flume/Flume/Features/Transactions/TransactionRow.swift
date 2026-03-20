@@ -25,8 +25,12 @@ struct TransactionRow: View {
 
             Spacer()
 
-            Text(transaction.amount, format: .currency(code: transaction.isoCurrencyCode))
+            // Plaid: negative = deposit, positive = expense.
+            // Show deposits in green with a "+" prefix.
+            let isDeposit = transaction.amount < 0
+            Text(abs(transaction.amount), format: .currency(code: transaction.isoCurrencyCode))
                 .font(.body.monospacedDigit())
+                .foregroundStyle(isDeposit ? .green : .primary)
         }
         .padding(.vertical, 2)
     }

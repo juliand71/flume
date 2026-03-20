@@ -94,8 +94,10 @@ private struct CategoryTransactionRow: View {
 
             Spacer()
 
-            Text(transaction.amount, format: .currency(code: transaction.isoCurrencyCode))
+            let isDeposit = transaction.amount < 0
+            Text(abs(transaction.amount), format: .currency(code: transaction.isoCurrencyCode))
                 .fontWeight(.medium)
+                .foregroundStyle(isDeposit ? .green : .primary)
         }
         .padding(.vertical, 2)
     }

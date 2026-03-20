@@ -356,14 +356,14 @@ Credit cards require special logic to avoid double-counting.
 ### Budget math for a single period
 
 ```
-total_income    = sum(transactions where budget_category = 'income')
-total_fixed     = sum(transactions where budget_category = 'fixed')
-total_flex      = sum(transactions where budget_category = 'flex')
-total_savings   = sum(transactions where budget_category = 'savings')
-surplus         = total_income - total_fixed - total_flex
+total_income    = sum(transactions where budget_category = 'income')   -- negative (Plaid convention)
+total_fixed     = sum(transactions where budget_category = 'fixed')    -- positive
+total_flex      = sum(transactions where budget_category = 'flex')     -- positive
+total_savings   = sum(transactions where budget_category = 'savings')  -- positive
+surplus         = -total_income - total_fixed - total_flex
 ```
 
-Note: Plaid reports expenses as positive amounts and income as negative. The sync service normalizes on write: income stored as positive, expenses stored as positive, with the budget category indicating direction.
+Note: Amounts use Plaid's sign convention throughout the stack — income/deposits are negative, expenses are positive. The budget category indicates the type of transaction, while the sign indicates direction of money flow. Display layers negate income amounts for user-friendly presentation.
 
 ---
 

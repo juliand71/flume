@@ -197,6 +197,34 @@ struct BudgetAPIService: Sendable {
         return response.savingsGoals
     }
 
+    // MARK: - Onboarding
+
+    func fetchOnboardingStatus(accessToken: String) async throws -> OnboardingStatus {
+        return try await get(path: "/onboarding/status", accessToken: accessToken)
+    }
+
+    func updateOnboardingStep(step: String, accessToken: String) async throws -> OnboardingStatus {
+        struct Body: Encodable {
+            let step: String
+        }
+        return try await patch(path: "/onboarding/step", body: Body(step: step), accessToken: accessToken)
+    }
+
+    func fetchSyncStatus(accessToken: String) async throws -> SyncStatus {
+        return try await get(path: "/budget/sync-status", accessToken: accessToken)
+    }
+
+    func detectIncome(accessToken: String) async throws -> IncomeDetectionResponse {
+        return try await get(path: "/budget/detect-income", accessToken: accessToken)
+    }
+
+    func suggestPeriod(incomeStreamId: String, accessToken: String) async throws -> BudgetSuggestion {
+        struct Body: Encodable {
+            let income_stream_id: String
+        }
+        return try await post(path: "/budget/suggest-period", body: Body(income_stream_id: incomeStreamId), accessToken: accessToken)
+    }
+
     // MARK: - Private
 
     private func get<Response: Decodable>(path: String, accessToken: String) async throws -> Response {
