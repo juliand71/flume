@@ -38,7 +38,7 @@ struct SavingsGoalFillView: View {
                         Text("Remaining")
                         Spacer()
                         Text(remaining, format: .currency(code: "USD"))
-                            .foregroundStyle(remaining >= 0 ? .secondary : .red)
+                            .foregroundStyle(remaining >= 0 ? .secondary : Color.red)
                     }
                 }
 

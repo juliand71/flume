@@ -27,7 +27,7 @@ struct CategoryDetailView: View {
                     ForEach(groupedTransactions, id: \.0) { date, transactions in
                         Section(header: Text(date)) {
                             ForEach(transactions) { transaction in
-                                TransactionRow(transaction: transaction)
+                                CategoryTransactionRow(transaction: transaction)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         selectedTransaction = transaction
@@ -77,7 +77,7 @@ struct CategoryDetailView: View {
     }
 }
 
-private struct TransactionRow: View {
+private struct CategoryTransactionRow: View {
     let transaction: BudgetTransaction
 
     var body: some View {
