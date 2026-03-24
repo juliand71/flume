@@ -214,8 +214,13 @@ struct BudgetAPIService: Sendable {
         return try await get(path: "/budget/sync-status", accessToken: accessToken)
     }
 
-    func detectIncome(accessToken: String) async throws -> IncomeDetectionResponse {
-        return try await get(path: "/budget/detect-income", accessToken: accessToken)
+    func detectIncome(startDate: String? = nil, endDate: String? = nil, accessToken: String) async throws -> IncomeDetectionResponse {
+        var path = "/budget/detect-income"
+        var queryItems: [String] = []
+        if let startDate { queryItems.append("start_date=\(startDate)") }
+        if let endDate { queryItems.append("end_date=\(endDate)") }
+        if !queryItems.isEmpty { path += "?" + queryItems.joined(separator: "&") }
+        return try await get(path: path, accessToken: accessToken)
     }
 
     func suggestPeriod(incomeStreamId: String, accessToken: String) async throws -> BudgetSuggestion {
@@ -228,7 +233,7 @@ struct BudgetAPIService: Sendable {
     // MARK: - Private
 
     private func get<Response: Decodable>(path: String, accessToken: String) async throws -> Response {
-        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        var request = URLRequest(url: URL(string: path, relativeTo: baseURL)!)
         request.httpMethod = "GET"
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
 

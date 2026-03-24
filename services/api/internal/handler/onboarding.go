@@ -10,8 +10,8 @@ import (
 )
 
 var onboardingStepOrder = []string{
-	"welcome", "link_bank", "syncing", "confirm_income",
-	"create_budget", "savings_goal", "complete",
+	"welcome", "link_bank", "syncing", "choose_period",
+	"confirm_income", "create_budget", "savings_goal", "complete",
 }
 
 func stepIndex(step string) int {

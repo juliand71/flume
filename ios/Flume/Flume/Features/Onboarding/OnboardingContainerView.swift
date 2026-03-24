@@ -19,6 +19,8 @@ struct OnboardingContainerView: View {
                 #endif
             case .syncing:
                 SyncingStepView(viewModel: viewModel)
+            case .choosePeriod:
+                BudgetPeriodStepView(viewModel: viewModel)
             case .confirmIncome:
                 IncomeConfirmStepView(viewModel: viewModel)
             case .createBudget:

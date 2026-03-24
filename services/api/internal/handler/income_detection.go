@@ -34,162 +34,77 @@ type detectedStream struct {
 }
 
 type incomeDetectionResponse struct {
-	DetectedStreams       []detectedStream `json:"detected_streams"`
-	MonthlyExpenseEstimate float64         `json:"monthly_expense_estimate"`
+	DetectedStreams        []detectedStream `json:"detected_streams"`
+	MonthlyExpenseEstimate float64          `json:"monthly_expense_estimate"`
 	TransactionCount      int              `json:"transaction_count"`
 	DateRangeDays         int              `json:"date_range_days"`
+	ExpandedSearch        bool             `json:"expanded_search"`
 }
 
 func DetectIncome(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := auth.UserID(r.Context())
 
-		// 1. Fetch income transactions (amount < 0 in Plaid convention)
-		rows, err := pool.Query(r.Context(), `
-			SELECT name, amount, date::text
-			FROM transactions
-			WHERE user_id = $1
-			  AND personal_finance_category->>'primary' = 'INCOME'
-			  AND amount < 0
-			ORDER BY name, date
-		`, userID)
+		// Parse optional date range params
+		startDateStr := r.URL.Query().Get("start_date")
+		endDateStr := r.URL.Query().Get("end_date")
+		var startDate, endDate *time.Time
+		if startDateStr != "" {
+			if d, err := time.Parse("2006-01-02", startDateStr); err == nil {
+				startDate = &d
+			}
+		}
+		if endDateStr != "" {
+			if d, err := time.Parse("2006-01-02", endDateStr); err == nil {
+				endDate = &d
+			}
+		}
+
+		detected, err := queryIncomeStreams(r, pool, userID, startDate, endDate)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to query income transactions")
+			writeError(w, http.StatusInternalServerError, "failed to detect income")
 			return
 		}
-		defer rows.Close()
 
-		type txn struct {
-			name   string
-			amount float64
-			date   string
-		}
-
-		// Group by normalized name
-		groups := map[string][]txn{}
-		for rows.Next() {
-			var t txn
-			if err := rows.Scan(&t.name, &t.amount, &t.date); err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to scan transaction")
+		// Fallback: if date-scoped query returned nothing, expand to all history
+		expandedSearch := false
+		if len(detected) == 0 && startDate != nil {
+			detected, err = queryIncomeStreams(r, pool, userID, nil, nil)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to detect income")
 				return
 			}
-			key := normalizeTxnName(t.name)
-			groups[key] = append(groups[key], t)
+			if len(detected) > 0 {
+				expandedSearch = true
+			}
 		}
 
-		// 2. Detect patterns in each group
-		var detected []detectedStream
-		for _, txns := range groups {
-			if len(txns) < 2 {
-				continue
-			}
-
-			// Parse dates and compute intervals
-			var dates []time.Time
-			var amounts []float64
-			for _, t := range txns {
-				d, err := time.Parse("2006-01-02", t.date)
-				if err != nil {
-					continue
-				}
-				dates = append(dates, d)
-				amounts = append(amounts, math.Abs(t.amount))
-			}
-			if len(dates) < 2 {
-				continue
-			}
-
-			// Sort dates chronologically
-			sort.Slice(dates, func(i, j int) bool { return dates[i].Before(dates[j]) })
-
-			// Compute intervals between consecutive dates
-			var intervals []int
-			for i := 1; i < len(dates); i++ {
-				days := int(dates[i].Sub(dates[i-1]).Hours() / 24)
-				intervals = append(intervals, days)
-			}
-
-			// Classify frequency by median interval
-			medianInterval := medianInt(intervals)
-			freq := classifyFrequency(medianInterval)
-			if freq == "" {
-				continue
-			}
-
-			// Compute estimated amount (median of absolute amounts)
-			sort.Float64s(amounts)
-			estAmount := medianFloat(amounts)
-
-			// Compute next expected date
-			lastDate := dates[len(dates)-1]
-			var nextDate *string
-			switch freq {
-			case "weekly":
-				nd := lastDate.AddDate(0, 0, 7)
-				s := nd.Format("2006-01-02")
-				nextDate = &s
-			case "biweekly":
-				nd := lastDate.AddDate(0, 0, 14)
-				s := nd.Format("2006-01-02")
-				nextDate = &s
-			case "monthly":
-				nd := lastDate.AddDate(0, 1, 0)
-				s := nd.Format("2006-01-02")
-				nextDate = &s
-			case "semimonthly":
-				// If last was around 1st, next is around 15th, and vice versa
-				if lastDate.Day() <= 15 {
-					nd := time.Date(lastDate.Year(), lastDate.Month(), 15, 0, 0, 0, 0, time.UTC)
-					s := nd.Format("2006-01-02")
-					nextDate = &s
-				} else {
-					nd := time.Date(lastDate.Year(), lastDate.Month()+1, 1, 0, 0, 0, 0, time.UTC)
-					s := nd.Format("2006-01-02")
-					nextDate = &s
-				}
-			}
-
-			// Assess confidence
-			stddev := stddevInt(intervals)
-			confidence := "low"
-			if len(txns) >= 4 && stddev < 3.0 {
-				confidence = "high"
-			} else if len(txns) >= 2 && stddev < 5.0 {
-				confidence = "medium"
-			}
-
-			// Use the original (non-normalized) name from the most recent transaction
-			displayName := txns[len(txns)-1].name
-
-			detected = append(detected, detectedStream{
-				Name:             displayName,
-				EstimatedAmount:  math.Round(estAmount*100) / 100,
-				Frequency:        freq,
-				NextExpectedDate: nextDate,
-				Occurrences:      len(txns),
-				Confidence:       confidence,
-			})
-		}
-
-		// Sort by estimated amount descending
-		sort.Slice(detected, func(i, j int) bool {
-			return detected[i].EstimatedAmount > detected[j].EstimatedAmount
-		})
-
-		// 3. Compute monthly expense estimate and date range
+		// Compute expense estimate and date range
 		var totalExpenses float64
 		var minDate, maxDate *string
 		var txnCount int
 
-		err = pool.QueryRow(r.Context(), `
-			SELECT
-				COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_expenses,
-				MIN(date)::text as min_date,
-				MAX(date)::text as max_date,
-				COUNT(*) as txn_count
-			FROM transactions
-			WHERE user_id = $1
-		`, userID).Scan(&totalExpenses, &minDate, &maxDate, &txnCount)
+		if startDate != nil && endDate != nil {
+			err = pool.QueryRow(r.Context(), `
+				SELECT
+					COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_expenses,
+					MIN(date)::text as min_date,
+					MAX(date)::text as max_date,
+					COUNT(*) as txn_count
+				FROM transactions
+				WHERE user_id = $1 AND date >= $2 AND date < $3
+			`, userID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")).Scan(&totalExpenses, &minDate, &maxDate, &txnCount)
+		} else {
+			err = pool.QueryRow(r.Context(), `
+				SELECT
+					COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_expenses,
+					MIN(date)::text as min_date,
+					MAX(date)::text as max_date,
+					COUNT(*) as txn_count
+				FROM transactions
+				WHERE user_id = $1
+			`, userID).Scan(&totalExpenses, &minDate, &maxDate, &txnCount)
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to compute expense estimate")
 			return
@@ -214,6 +129,7 @@ func DetectIncome(pool *pgxpool.Pool) http.HandlerFunc {
 			MonthlyExpenseEstimate: monthlyExpense,
 			TransactionCount:      txnCount,
 			DateRangeDays:         dateRangeDays,
+			ExpandedSearch:        expandedSearch,
 		}
 		if resp.DetectedStreams == nil {
 			resp.DetectedStreams = []detectedStream{}
@@ -222,6 +138,146 @@ func DetectIncome(pool *pgxpool.Pool) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	}
+}
+
+func queryIncomeStreams(r *http.Request, pool *pgxpool.Pool, userID string, startDate, endDate *time.Time) ([]detectedStream, error) {
+	var query string
+	var args []any
+
+	if startDate != nil && endDate != nil {
+		query = `
+			SELECT name, amount, date::text
+			FROM transactions
+			WHERE user_id = $1
+			  AND personal_finance_category->>'primary' = 'INCOME'
+			  AND amount < 0
+			  AND date >= $2 AND date < $3
+			ORDER BY name, date
+		`
+		args = []any{userID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}
+	} else {
+		query = `
+			SELECT name, amount, date::text
+			FROM transactions
+			WHERE user_id = $1
+			  AND personal_finance_category->>'primary' = 'INCOME'
+			  AND amount < 0
+			ORDER BY name, date
+		`
+		args = []any{userID}
+	}
+
+	rows, err := pool.Query(r.Context(), query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type txn struct {
+		name   string
+		amount float64
+		date   string
+	}
+
+	groups := map[string][]txn{}
+	for rows.Next() {
+		var t txn
+		if err := rows.Scan(&t.name, &t.amount, &t.date); err != nil {
+			return nil, err
+		}
+		key := normalizeTxnName(t.name)
+		groups[key] = append(groups[key], t)
+	}
+
+	var detected []detectedStream
+	for _, txns := range groups {
+		if len(txns) < 2 {
+			continue
+		}
+
+		var dates []time.Time
+		var amounts []float64
+		for _, t := range txns {
+			d, err := time.Parse("2006-01-02", t.date)
+			if err != nil {
+				continue
+			}
+			dates = append(dates, d)
+			amounts = append(amounts, math.Abs(t.amount))
+		}
+		if len(dates) < 2 {
+			continue
+		}
+
+		sort.Slice(dates, func(i, j int) bool { return dates[i].Before(dates[j]) })
+
+		var intervals []int
+		for i := 1; i < len(dates); i++ {
+			days := int(dates[i].Sub(dates[i-1]).Hours() / 24)
+			intervals = append(intervals, days)
+		}
+
+		medianInterval := medianInt(intervals)
+		freq := classifyFrequency(medianInterval)
+		if freq == "" {
+			continue
+		}
+
+		sort.Float64s(amounts)
+		estAmount := medianFloat(amounts)
+
+		lastDate := dates[len(dates)-1]
+		var nextDate *string
+		switch freq {
+		case "weekly":
+			nd := lastDate.AddDate(0, 0, 7)
+			s := nd.Format("2006-01-02")
+			nextDate = &s
+		case "biweekly":
+			nd := lastDate.AddDate(0, 0, 14)
+			s := nd.Format("2006-01-02")
+			nextDate = &s
+		case "monthly":
+			nd := lastDate.AddDate(0, 1, 0)
+			s := nd.Format("2006-01-02")
+			nextDate = &s
+		case "semimonthly":
+			if lastDate.Day() <= 15 {
+				nd := time.Date(lastDate.Year(), lastDate.Month(), 15, 0, 0, 0, 0, time.UTC)
+				s := nd.Format("2006-01-02")
+				nextDate = &s
+			} else {
+				nd := time.Date(lastDate.Year(), lastDate.Month()+1, 1, 0, 0, 0, 0, time.UTC)
+				s := nd.Format("2006-01-02")
+				nextDate = &s
+			}
+		}
+
+		stddev := stddevInt(intervals)
+		confidence := "low"
+		if len(txns) >= 4 && stddev < 3.0 {
+			confidence = "high"
+		} else if len(txns) >= 2 && stddev < 5.0 {
+			confidence = "medium"
+		}
+
+		displayName := txns[len(txns)-1].name
+
+		detected = append(detected, detectedStream{
+			Name:             displayName,
+			EstimatedAmount:  math.Round(estAmount*100) / 100,
+			Frequency:        freq,
+			NextExpectedDate: nextDate,
+			Occurrences:      len(txns),
+			Confidence:       confidence,
+		})
+	}
+
+	sort.Slice(detected, func(i, j int) bool {
+		return detected[i].EstimatedAmount > detected[j].EstimatedAmount
+	})
+
+	return detected, nil
 }
 
 func classifyFrequency(medianDays int) string {

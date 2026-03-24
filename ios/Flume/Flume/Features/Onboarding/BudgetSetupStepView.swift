@@ -17,33 +17,23 @@ struct BudgetSetupStepView: View {
             Text("Your First Budget")
                 .font(.title.bold())
 
-            if viewModel.isLoading {
-                Spacer()
-                ProgressView("Building your budget suggestion...")
-                Spacer()
-            } else {
-                budgetForm
-            }
+            budgetForm
         }
         .padding()
         .frame(maxWidth: 400)
-        .task {
-            guard let token = authService.accessToken else { return }
-            // Use the first confirmed stream (highest priority)
-            if let primaryStream = viewModel.confirmedStreams.first {
-                await viewModel.fetchBudgetSuggestion(
-                    incomeStreamId: primaryStream.id.uuidString,
-                    accessToken: token
-                )
-            }
-            if let suggestion = viewModel.budgetSuggestion {
-                startDate = suggestion.startDate
-                endDate = suggestion.endDate
-                incomeTarget = "\(suggestion.incomeTarget)"
-                fixedTarget = "\(suggestion.fixedTarget)"
-                flexTarget = "\(suggestion.flexTarget)"
-                savingsTarget = "\(suggestion.savingsTarget)"
-            }
+        .onAppear {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            startDate = viewModel.periodStartDate.map { formatter.string(from: $0) } ?? ""
+            endDate = viewModel.periodEndDate.map { formatter.string(from: $0) } ?? ""
+
+            let totalIncome = viewModel.confirmedStreams
+                .map { $0.estimatedAmount }
+                .reduce(0, +)
+            incomeTarget = "\(totalIncome)"
+            fixedTarget = "\(totalIncome * Decimal(string: "0.50")!)"
+            flexTarget = "\(totalIncome * Decimal(string: "0.30")!)"
+            savingsTarget = "\(totalIncome * Decimal(string: "0.20")!)"
         }
     }
 
@@ -56,8 +46,8 @@ struct BudgetSetupStepView: View {
                     .foregroundStyle(.secondary)
 
                 Group {
-                    labeledField("Period Start", text: $startDate)
-                    labeledField("Period End", text: $endDate)
+                    labeledDisplay("Period Start", value: startDate)
+                    labeledDisplay("Period End", value: endDate)
                 }
 
                 Divider()
@@ -94,13 +84,16 @@ struct BudgetSetupStepView: View {
     }
 
     @ViewBuilder
-    private func labeledField(_ label: String, text: Binding<String>) -> some View {
+    private func labeledDisplay(_ label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            TextField(label, text: text)
-                .textFieldStyle(.roundedBorder)
+            Text(value)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.quaternary.opacity(0.5))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
         }
     }
 

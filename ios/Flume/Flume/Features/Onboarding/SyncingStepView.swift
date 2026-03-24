@@ -41,7 +41,7 @@ struct SyncingStepView: View {
                 Button("Continue Without Data") {
                     Task {
                         guard let token = authService.accessToken else { return }
-                        await viewModel.advanceTo(step: .confirmIncome, accessToken: token)
+                        await viewModel.advanceTo(step: .choosePeriod, accessToken: token)
                     }
                 }
                 .foregroundStyle(.secondary)

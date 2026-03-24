@@ -15,6 +15,7 @@ struct IncomeDetectionResponse: Codable, Sendable {
     let monthlyExpenseEstimate: Decimal
     let transactionCount: Int
     let dateRangeDays: Int
+    let expandedSearch: Bool?
 }
 
 struct BudgetSuggestion: Codable, Sendable {

@@ -69,7 +69,11 @@ struct IncomeConfirmStepView: View {
 
     @ViewBuilder
     private var detectedStreamsView: some View {
-        if viewModel.dateRangeDays < 30 {
+        if viewModel.expandedSearch {
+            Text("We looked beyond your budget period to find income patterns.")
+                .font(.caption)
+                .foregroundStyle(.blue)
+        } else if viewModel.dateRangeDays < 30 {
             Text("Based on \(viewModel.dateRangeDays) days of data — suggestions may be less accurate.")
                 .font(.caption)
                 .foregroundStyle(.orange)
