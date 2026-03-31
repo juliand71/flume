@@ -1,0 +1,1037 @@
+openapi: "3.0.3"
+info:
+  title: Flume Budget API
+  description: Budget domain API for the Flume personal finance app.
+  version: "1.0.0"
+
+servers:
+  - url: http://localhost:3002
+    description: Local development
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        In debug mode, auth is bypassed — no token needed.
+        Use the X-Debug-User-ID header to impersonate a different user.
+    DebugUserOverride:
+      type: apiKey
+      in: header
+      name: X-Debug-User-ID
+      description: Override the debug user UUID (debug mode only)
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+    OnboardingStatus:
+      type: object
+      properties:
+        onboarding_step:
+          type: string
+          nullable: true
+          enum: [welcome, link_bank, syncing, choose_period, confirm_income, confirm_fixed, confirm_flex, review_savings, savings_goal, complete]
+        has_plaid_items:
+          type: boolean
+        transaction_count:
+          type: integer
+        has_income_streams:
+          type: boolean
+        has_budget_period:
+          type: boolean
+        has_savings_goal:
+          type: boolean
+
+    Account:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        plaid_item_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        plaid_account_id:
+          type: string
+        name:
+          type: string
+        official_name:
+          type: string
+          nullable: true
+        type:
+          type: string
+        subtype:
+          type: string
+          nullable: true
+        mask:
+          type: string
+          nullable: true
+        current_balance:
+          type: number
+          nullable: true
+        available_balance:
+          type: number
+          nullable: true
+        iso_currency_code:
+          type: string
+        account_role:
+          type: string
+          nullable: true
+          enum: [checking, savings, credit_card]
+        created_at:
+          type: string
+          format: date-time
+
+    IncomeStream:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        estimated_amount:
+          type: number
+        frequency:
+          type: string
+          enum: [weekly, biweekly, semimonthly, monthly]
+        next_expected_date:
+          type: string
+          format: date
+          nullable: true
+        active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    BudgetPeriod:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        income_target:
+          type: number
+        fixed_target:
+          type: number
+        flex_target:
+          type: number
+        savings_target:
+          type: number
+        income_stream_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    BudgetPeriodWithActuals:
+      allOf:
+        - $ref: "#/components/schemas/BudgetPeriod"
+        - type: object
+          properties:
+            actual_income:
+              type: number
+            actual_fixed:
+              type: number
+            actual_flex:
+              type: number
+            actual_savings:
+              type: number
+            surplus:
+              type: number
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        account_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        amount:
+          type: number
+        iso_currency_code:
+          type: string
+        date:
+          type: string
+          format: date
+        pending:
+          type: boolean
+        budget_category:
+          type: string
+          enum: [income, fixed, flex, savings, transfer, ignore]
+        category_override:
+          type: string
+          nullable: true
+          enum: [income, fixed, flex, savings, transfer, ignore]
+
+    CategoryMapping:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+          nullable: true
+        plaid_primary_category:
+          type: string
+        plaid_detailed_category:
+          type: string
+          nullable: true
+        budget_category:
+          type: string
+          enum: [income, fixed, flex, savings, transfer, ignore]
+        created_at:
+          type: string
+          format: date-time
+
+    SavingsGoal:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        target_amount:
+          type: number
+        current_amount:
+          type: number
+        emoji:
+          type: string
+          nullable: true
+        is_emergency_fund:
+          type: boolean
+        priority:
+          type: integer
+        archived:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    DetectedIncomeStream:
+      type: object
+      properties:
+        name:
+          type: string
+        estimated_amount:
+          type: number
+        total_amount:
+          type: number
+        frequency:
+          type: string
+          enum: [weekly, biweekly, semimonthly, monthly]
+        next_expected_date:
+          type: string
+          format: date
+          nullable: true
+        occurrences:
+          type: integer
+        confidence:
+          type: string
+          enum: [low, medium, high]
+        transactions:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              amount:
+                type: number
+              name:
+                type: string
+
+    DetectedFixedExpense:
+      type: object
+      properties:
+        name:
+          type: string
+        total_amount:
+          type: number
+        occurrences:
+          type: integer
+        plaid_category:
+          type: string
+        transactions:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              amount:
+                type: number
+              name:
+                type: string
+
+tags:
+  - name: Onboarding
+  - name: Accounts
+  - name: Income Streams
+  - name: Budget Periods
+  - name: Categories
+  - name: Detection
+  - name: Transactions
+  - name: Savings Goals
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      tags: [Health]
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+
+  /onboarding/status:
+    get:
+      summary: Get onboarding status
+      tags: [Onboarding]
+      responses:
+        "200":
+          description: Current onboarding progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStatus"
+
+  /onboarding/step:
+    patch:
+      summary: Update onboarding step
+      tags: [Onboarding]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [step]
+              properties:
+                step:
+                  type: string
+                  enum: [welcome, link_bank, syncing, choose_period, confirm_income, confirm_fixed, confirm_flex, review_savings, savings_goal, complete]
+      responses:
+        "200":
+          description: Updated onboarding status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStatus"
+
+  /budget/accounts:
+    get:
+      summary: List connected accounts
+      tags: [Accounts]
+      responses:
+        "200":
+          description: List of bank accounts with roles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accounts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Account"
+
+  /budget/accounts/{id}/role:
+    patch:
+      summary: Set account role
+      tags: [Accounts]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [account_role]
+              properties:
+                account_role:
+                  type: string
+                  enum: [checking, savings, credit_card]
+      responses:
+        "200":
+          description: Updated account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+
+  /budget/income-streams:
+    get:
+      summary: List income streams
+      tags: [Income Streams]
+      responses:
+        "200":
+          description: List of income streams
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  income_streams:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/IncomeStream"
+    post:
+      summary: Create income stream
+      tags: [Income Streams]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, estimated_amount, frequency]
+              properties:
+                name:
+                  type: string
+                estimated_amount:
+                  type: number
+                frequency:
+                  type: string
+                  enum: [weekly, biweekly, semimonthly, monthly]
+                next_expected_date:
+                  type: string
+                  format: date
+      responses:
+        "201":
+          description: Created income stream
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncomeStream"
+
+  /budget/income-streams/{id}:
+    patch:
+      summary: Update income stream
+      tags: [Income Streams]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                estimated_amount:
+                  type: number
+                frequency:
+                  type: string
+                  enum: [weekly, biweekly, semimonthly, monthly]
+                next_expected_date:
+                  type: string
+                  format: date
+      responses:
+        "200":
+          description: Updated income stream
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncomeStream"
+    delete:
+      summary: Delete income stream
+      tags: [Income Streams]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Deleted
+
+  /budget/current-period:
+    get:
+      summary: Get current budget period with actuals
+      tags: [Budget Periods]
+      responses:
+        "200":
+          description: Current period with computed actuals and surplus
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BudgetPeriodWithActuals"
+
+  /budget/periods:
+    get:
+      summary: List budget periods
+      tags: [Budget Periods]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Paginated list of periods
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  periods:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BudgetPeriod"
+                  total:
+                    type: integer
+    post:
+      summary: Create budget period
+      tags: [Budget Periods]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [start_date, end_date, income_target, fixed_target, flex_target, savings_target]
+              properties:
+                start_date:
+                  type: string
+                  format: date
+                end_date:
+                  type: string
+                  format: date
+                income_target:
+                  type: number
+                fixed_target:
+                  type: number
+                flex_target:
+                  type: number
+                savings_target:
+                  type: number
+                income_stream_id:
+                  type: string
+                  format: uuid
+      responses:
+        "201":
+          description: Created period
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BudgetPeriod"
+
+  /budget/periods/{id}:
+    patch:
+      summary: Update budget period targets
+      tags: [Budget Periods]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                income_target:
+                  type: number
+                fixed_target:
+                  type: number
+                flex_target:
+                  type: number
+                savings_target:
+                  type: number
+      responses:
+        "200":
+          description: Updated period
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BudgetPeriod"
+
+  /budget/category-summary:
+    get:
+      summary: Get category summary for current period
+      tags: [Categories]
+      responses:
+        "200":
+          description: Category targets vs actuals
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  period_id:
+                    type: string
+                    format: uuid
+                  start_date:
+                    type: string
+                    format: date
+                  end_date:
+                    type: string
+                    format: date
+                  categories:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        category:
+                          type: string
+                        target:
+                          type: number
+                        actual:
+                          type: number
+                  surplus:
+                    type: number
+
+  /budget/sync-status:
+    get:
+      summary: Get Plaid sync status
+      tags: [Detection]
+      responses:
+        "200":
+          description: Sync status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  has_plaid_items:
+                    type: boolean
+                  transaction_count:
+                    type: integer
+
+  /budget/detect-income:
+    get:
+      summary: Detect recurring income patterns
+      tags: [Detection]
+      parameters:
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Detected income streams
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detected_streams:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DetectedIncomeStream"
+                  monthly_expense_estimate:
+                    type: number
+                  transaction_count:
+                    type: integer
+                  date_range_days:
+                    type: integer
+                  expanded_search:
+                    type: boolean
+
+  /budget/detect-fixed:
+    get:
+      summary: Detect fixed expenses
+      tags: [Detection]
+      parameters:
+        - name: start_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Detected fixed expenses
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detected_expenses:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DetectedFixedExpense"
+                  total_fixed:
+                    type: number
+
+  /budget/detect-flex:
+    get:
+      summary: Detect flex spending total
+      tags: [Detection]
+      parameters:
+        - name: start_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Flex spending aggregate
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_flex:
+                    type: number
+                  transaction_count:
+                    type: integer
+
+  /budget/suggest-period:
+    post:
+      summary: Suggest a budget period based on income stream
+      tags: [Detection]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [income_stream_id]
+              properties:
+                income_stream_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Suggested period parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  start_date:
+                    type: string
+                    format: date
+                  end_date:
+                    type: string
+                    format: date
+                  income_target:
+                    type: number
+                  fixed_target:
+                    type: number
+                  flex_target:
+                    type: number
+                  savings_target:
+                    type: number
+
+  /budget/transactions:
+    get:
+      summary: List transactions for a budget period
+      tags: [Transactions]
+      parameters:
+        - name: period_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [income, fixed, flex, savings, transfer, ignore]
+      responses:
+        "200":
+          description: Transactions list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Transaction"
+
+  /budget/transactions/{id}/override:
+    post:
+      summary: Override transaction budget category
+      tags: [Transactions]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [budget_category]
+              properties:
+                budget_category:
+                  type: string
+                  enum: [income, fixed, flex, savings, transfer, ignore]
+      responses:
+        "200":
+          description: Updated transaction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+
+  /budget/categories:
+    get:
+      summary: List category mappings
+      tags: [Categories]
+      responses:
+        "200":
+          description: Category mappings (system defaults + user overrides)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  category_mappings:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CategoryMapping"
+    post:
+      summary: Create category mapping
+      tags: [Categories]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plaid_primary_category, budget_category]
+              properties:
+                plaid_primary_category:
+                  type: string
+                plaid_detailed_category:
+                  type: string
+                budget_category:
+                  type: string
+                  enum: [income, fixed, flex, savings, transfer, ignore]
+      responses:
+        "201":
+          description: Created mapping
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryMapping"
+
+  /budget/savings-goals:
+    get:
+      summary: List savings goals
+      tags: [Savings Goals]
+      responses:
+        "200":
+          description: Savings goals list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  savings_goals:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SavingsGoal"
+    post:
+      summary: Create savings goal
+      tags: [Savings Goals]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, target_amount, is_emergency_fund]
+              properties:
+                name:
+                  type: string
+                target_amount:
+                  type: number
+                emoji:
+                  type: string
+                is_emergency_fund:
+                  type: boolean
+                priority:
+                  type: integer
+      responses:
+        "201":
+          description: Created savings goal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavingsGoal"
+
+  /budget/savings-goals/fill:
+    post:
+      summary: Allocate surplus to savings goals
+      tags: [Savings Goals]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [allocations]
+              properties:
+                allocations:
+                  type: array
+                  items:
+                    type: object
+                    required: [savings_goal_id, amount]
+                    properties:
+                      savings_goal_id:
+                        type: string
+                        format: uuid
+                      amount:
+                        type: number
+      responses:
+        "200":
+          description: Updated savings goals
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  savings_goals:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SavingsGoal"
+
+  /budget/savings-goals/{id}:
+    patch:
+      summary: Update savings goal
+      tags: [Savings Goals]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                target_amount:
+                  type: number
+                emoji:
+                  type: string
+                is_emergency_fund:
+                  type: boolean
+                priority:
+                  type: integer
+      responses:
+        "200":
+          description: Updated savings goal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavingsGoal"
+    delete:
+      summary: Delete savings goal
+      tags: [Savings Goals]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Deleted

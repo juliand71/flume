@@ -8,7 +8,9 @@ final class OnboardingViewModel {
         case syncing
         case choosePeriod = "choose_period"
         case confirmIncome = "confirm_income"
-        case createBudget = "create_budget"
+        case confirmFixed = "confirm_fixed"
+        case confirmFlex = "confirm_flex"
+        case reviewSavings = "review_savings"
         case savingsGoal = "savings_goal"
         case complete
     }
@@ -21,11 +23,20 @@ final class OnboardingViewModel {
     var detectedStreams: [DetectedIncomeStream] = []
     var monthlyExpenseEstimate: Decimal = 0
     var dateRangeDays = 0
-
     var expandedSearch = false
 
     // Confirmed income streams (after user saves them)
     var confirmedStreams: [IncomeStream] = []
+    var confirmedIncomeTotal: Decimal = 0
+
+    // Fixed spending detection
+    var detectedFixedExpenses: [DetectedFixedExpense] = []
+    var confirmedFixedTotal: Decimal = 0
+
+    // Flex spending detection
+    var detectedFlexTotal: Decimal = 0
+    var confirmedFlexTarget: Decimal = 0
+    var flexTransactionCount: Int = 0
 
     // Budget period selection
     var selectedPeriodType: String = "monthly"
@@ -35,11 +46,30 @@ final class OnboardingViewModel {
     var biweeklyAnchorDate: Date?
     var weeklyStartDay: Int = 2 // 1=Sun..7=Sat, default Mon
 
-    // Budget suggestion
-    var budgetSuggestion: BudgetSuggestion?
-
     private let budgetAPI = BudgetAPIService.shared
     private var pollingTask: Task<Void, Never>?
+
+    // MARK: - Computed
+
+    var projectedSavings: Decimal {
+        confirmedIncomeTotal - confirmedFixedTotal - confirmedFlexTarget
+    }
+
+    var periodStartDateString: String? {
+        periodStartDate.map { formatDate($0) }
+    }
+
+    var periodEndDateString: String? {
+        periodEndDate.map { formatDate($0) }
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    // MARK: - Onboarding Status
 
     func loadStatus(accessToken: String) async {
         do {
@@ -50,7 +80,6 @@ final class OnboardingViewModel {
                 currentStep = .complete
             }
         } catch {
-            // If we can't fetch status, assume onboarding complete (don't block existing users)
             currentStep = .complete
         }
     }
@@ -97,7 +126,7 @@ final class OnboardingViewModel {
                 try? await Task.sleep(for: .seconds(3))
                 elapsed += 3
                 if elapsed >= 120 {
-                    return // Give up after 2 minutes
+                    return
                 }
             }
         }
@@ -114,10 +143,8 @@ final class OnboardingViewModel {
         isLoading = true
         defer { isLoading = false }
         do {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd"
-            let start = periodStartDate.map { formatter.string(from: $0) }
-            let end = periodEndDate.map { formatter.string(from: $0) }
+            let start = periodStartDateString
+            let end = periodEndDateString
             let response = try await budgetAPI.detectIncome(startDate: start, endDate: end, accessToken: accessToken)
             detectedStreams = response.detectedStreams
             monthlyExpenseEstimate = response.monthlyExpenseEstimate
@@ -151,40 +178,50 @@ final class OnboardingViewModel {
         }
     }
 
-    // MARK: - Budget Suggestion
+    // MARK: - Fixed Spending Detection
 
-    func fetchBudgetSuggestion(incomeStreamId: String, accessToken: String) async {
+    func detectFixed(accessToken: String) async {
+        guard let start = periodStartDateString, let end = periodEndDateString else { return }
         isLoading = true
         defer { isLoading = false }
         do {
-            budgetSuggestion = try await budgetAPI.suggestPeriod(
-                incomeStreamId: incomeStreamId,
-                accessToken: accessToken
-            )
+            let response = try await budgetAPI.detectFixed(startDate: start, endDate: end, accessToken: accessToken)
+            detectedFixedExpenses = response.detectedExpenses
+            confirmedFixedTotal = response.totalFixed
         } catch {
-            errorMessage = "Failed to get budget suggestion: \(error.localizedDescription)"
+            errorMessage = "Failed to detect fixed expenses: \(error.localizedDescription)"
         }
     }
 
-    func createBudgetPeriod(
-        startDate: String,
-        endDate: String,
-        incomeTarget: Decimal,
-        fixedTarget: Decimal,
-        flexTarget: Decimal,
-        savingsTarget: Decimal,
-        incomeStreamId: String?,
-        accessToken: String
-    ) async -> Bool {
+    // MARK: - Flex Spending Detection
+
+    func detectFlex(accessToken: String) async {
+        guard let start = periodStartDateString, let end = periodEndDateString else { return }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let response = try await budgetAPI.detectFlex(startDate: start, endDate: end, accessToken: accessToken)
+            detectedFlexTotal = response.totalFlex
+            confirmedFlexTarget = response.totalFlex
+            flexTransactionCount = response.transactionCount
+        } catch {
+            errorMessage = "Failed to detect flex spending: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Budget Creation
+
+    func createBudgetFromConfirmedValues(accessToken: String) async -> Bool {
+        guard let start = periodStartDateString, let end = periodEndDateString else { return false }
         do {
             _ = try await budgetAPI.createPeriod(
-                startDate: startDate,
-                endDate: endDate,
-                incomeTarget: incomeTarget,
-                fixedTarget: fixedTarget,
-                flexTarget: flexTarget,
-                savingsTarget: savingsTarget,
-                incomeStreamId: incomeStreamId,
+                startDate: start,
+                endDate: end,
+                incomeTarget: confirmedIncomeTotal,
+                fixedTarget: confirmedFixedTotal,
+                flexTarget: confirmedFlexTarget,
+                savingsTarget: projectedSavings,
+                incomeStreamId: confirmedStreams.first?.id.uuidString,
                 accessToken: accessToken
             )
             return true
@@ -238,7 +275,6 @@ final class OnboardingViewModel {
 
         case "biweekly":
             guard let anchor = biweeklyAnchorDate else { return }
-            // Walk backwards from anchor by 14-day increments to find start <= today
             var start = anchor
             while start > today {
                 start = calendar.date(byAdding: .day, value: -14, to: start)!
@@ -247,7 +283,6 @@ final class OnboardingViewModel {
             periodEndDate = calendar.date(byAdding: .day, value: 14, to: start)
 
         case "weekly":
-            // Find most recent occurrence of weeklyStartDay on or before today
             let todayWeekday = calendar.component(.weekday, from: today)
             var daysBack = todayWeekday - weeklyStartDay
             if daysBack < 0 { daysBack += 7 }

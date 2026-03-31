@@ -20,9 +20,9 @@ struct SavingsGoalListView: View {
                 ProgressView()
             } else {
                 ContentUnavailableView(
-                    "No Buckets",
+                    "No Goals",
                     systemImage: "archivebox",
-                    description: Text("Create a savings goal to start filling buckets.")
+                    description: Text("Create a savings goal to start tracking progress.")
                 )
             }
         }

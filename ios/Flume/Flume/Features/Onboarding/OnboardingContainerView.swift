@@ -23,8 +23,12 @@ struct OnboardingContainerView: View {
                 BudgetPeriodStepView(viewModel: viewModel)
             case .confirmIncome:
                 IncomeConfirmStepView(viewModel: viewModel)
-            case .createBudget:
-                BudgetSetupStepView(viewModel: viewModel)
+            case .confirmFixed:
+                FixedConfirmStepView(viewModel: viewModel)
+            case .confirmFlex:
+                FlexConfirmStepView(viewModel: viewModel)
+            case .reviewSavings:
+                ReviewSavingsStepView(viewModel: viewModel)
             case .savingsGoal:
                 SavingsGoalStepView(viewModel: viewModel, onComplete: onComplete)
             case .complete:

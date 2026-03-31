@@ -223,6 +223,14 @@ struct BudgetAPIService: Sendable {
         return try await get(path: path, accessToken: accessToken)
     }
 
+    func detectFixed(startDate: String, endDate: String, accessToken: String) async throws -> FixedDetectionResponse {
+        return try await get(path: "/budget/detect-fixed?start_date=\(startDate)&end_date=\(endDate)", accessToken: accessToken)
+    }
+
+    func detectFlex(startDate: String, endDate: String, accessToken: String) async throws -> FlexDetectionResponse {
+        return try await get(path: "/budget/detect-flex?start_date=\(startDate)&end_date=\(endDate)", accessToken: accessToken)
+    }
+
     func suggestPeriod(incomeStreamId: String, accessToken: String) async throws -> BudgetSuggestion {
         struct Body: Encodable {
             let income_stream_id: String

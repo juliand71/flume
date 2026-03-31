@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"net/http"
 	"os"
@@ -12,25 +13,34 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/joho/godotenv"
 	"github.com/julianwachholz/flume/services/api/internal/auth"
 	"github.com/julianwachholz/flume/services/api/internal/db"
+	"github.com/julianwachholz/flume/services/api/internal/docs"
 	"github.com/julianwachholz/flume/services/api/internal/handler"
 )
 
 func main() {
+	godotenv.Load()
+
+	debugMode := flag.Bool("debug", os.Getenv("DEBUG") == "1", "enable debug mode (Swagger UI, auth bypass)")
+	realAuth := flag.Bool("real-auth", false, "use real JWT auth even in debug mode")
+	portFlag := flag.String("port", "", "override PORT env var")
+	flag.Parse()
+
 	dbURL := os.Getenv("SUPABASE_DB_URL")
 	if dbURL == "" {
 		log.Fatal("SUPABASE_DB_URL is required")
 	}
 
 	supabaseURL := os.Getenv("SUPABASE_URL")
-	if supabaseURL == "" {
-		log.Fatal("SUPABASE_URL is required")
-	}
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "3002"
+	}
+	if *portFlag != "" {
+		port = *portFlag
 	}
 
 	ctx := context.Background()
@@ -41,11 +51,22 @@ func main() {
 	}
 	defer pool.Close()
 
-	keys, err := auth.FetchPublicKeys(supabaseURL)
-	if err != nil {
-		log.Fatalf("Failed to fetch JWKS: %v", err)
+	// Select auth middleware
+	var authMiddleware func(http.Handler) http.Handler
+	if *debugMode && !*realAuth {
+		log.Println("*** DEBUG MODE: Auth bypassed, using debug user ID ***")
+		authMiddleware = auth.DebugMiddleware()
+	} else {
+		if supabaseURL == "" {
+			log.Fatal("SUPABASE_URL is required")
+		}
+		keys, err := auth.FetchPublicKeys(supabaseURL)
+		if err != nil {
+			log.Fatalf("Failed to fetch JWKS: %v", err)
+		}
+		log.Printf("Loaded %d JWT public key(s)", len(keys))
+		authMiddleware = auth.Middleware(keys)
 	}
-	log.Printf("Loaded %d JWT public key(s)", len(keys))
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -54,9 +75,15 @@ func main() {
 	// Public routes
 	r.Get("/health", handler.Health(pool))
 
+	// Swagger UI (debug mode only)
+	if *debugMode {
+		r.Mount("/docs", docs.Routes())
+		log.Printf("Swagger UI available at http://localhost:%s/docs", port)
+	}
+
 	// Authenticated routes
 	r.Group(func(r chi.Router) {
-		r.Use(auth.Middleware(keys))
+		r.Use(authMiddleware)
 
 		// Onboarding
 		r.Get("/onboarding/status", handler.GetOnboardingStatus(pool))
@@ -80,9 +107,11 @@ func main() {
 		// Category summary
 		r.Get("/budget/category-summary", handler.GetCategorySummary(pool))
 
-		// Sync status + income detection + budget suggestion (onboarding)
+		// Sync status + detection + budget suggestion (onboarding)
 		r.Get("/budget/sync-status", handler.GetSyncStatus(pool))
 		r.Get("/budget/detect-income", handler.DetectIncome(pool))
+		r.Get("/budget/detect-fixed", handler.DetectFixed(pool))
+		r.Get("/budget/detect-flex", handler.DetectFlex(pool))
 		r.Post("/budget/suggest-period", handler.SuggestPeriod(pool))
 
 		// Transactions

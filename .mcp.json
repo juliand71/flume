@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "supabase": {
-      "type": "http",
-      "url": "https://mcp.supabase.com/mcp?project_ref=ewbhprkvtduvbcvzqzlz"
+    "supabase-local": {
+      "command": "npx",
+      "args": ["-y", "@anthropic/postgres-mcp", "postgresql://postgres:postgres@127.0.0.1:54322/postgres"]
     }
   }
 }

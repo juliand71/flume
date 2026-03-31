@@ -79,7 +79,7 @@ struct SavingsGoalDetailView: View {
             }
 
             Section {
-                Button("Delete Bucket", role: .destructive) {
+                Button("Delete Goal", role: .destructive) {
                     showingDeleteConfirmation = true
                 }
             }

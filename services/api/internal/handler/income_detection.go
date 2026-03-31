@@ -24,13 +24,21 @@ func normalizeTxnName(name string) string {
 	return strings.TrimSpace(s)
 }
 
+type streamTransaction struct {
+	Date   string  `json:"date"`
+	Amount float64 `json:"amount"`
+	Name   string  `json:"name"`
+}
+
 type detectedStream struct {
-	Name             string  `json:"name"`
-	EstimatedAmount  float64 `json:"estimated_amount"`
-	Frequency        string  `json:"frequency"`
-	NextExpectedDate *string `json:"next_expected_date"`
-	Occurrences      int     `json:"occurrences"`
-	Confidence       string  `json:"confidence"`
+	Name             string              `json:"name"`
+	EstimatedAmount  float64             `json:"estimated_amount"`
+	TotalAmount      float64             `json:"total_amount"`
+	Frequency        string              `json:"frequency"`
+	NextExpectedDate *string             `json:"next_expected_date"`
+	Occurrences      int                 `json:"occurrences"`
+	Confidence       string              `json:"confidence"`
+	Transactions     []streamTransaction `json:"transactions"`
 }
 
 type incomeDetectionResponse struct {
@@ -146,23 +154,59 @@ func queryIncomeStreams(r *http.Request, pool *pgxpool.Pool, userID string, star
 
 	if startDate != nil && endDate != nil {
 		query = `
-			SELECT name, amount, date::text
-			FROM transactions
-			WHERE user_id = $1
-			  AND personal_finance_category->>'primary' = 'INCOME'
-			  AND amount < 0
-			  AND date >= $2 AND date < $3
-			ORDER BY name, date
+			SELECT t.name, t.amount, t.date::text
+			FROM transactions t
+			WHERE t.user_id = $1
+			  AND t.amount < 0
+			  AND (
+			    t.personal_finance_category IS NULL
+			    OR t.personal_finance_category->>'primary' NOT IN (
+			      'LOAN_PAYMENTS', 'TRANSFER_OUT', 'BANK_FEES'
+			    )
+			  )
+			  AND NOT (
+			    t.personal_finance_category->>'primary' = 'TRANSFER_IN'
+			    AND t.personal_finance_category->>'detailed' IN (
+			      'TRANSFER_IN_ACCOUNT_TRANSFER', 'TRANSFER_IN_SAVINGS'
+			    )
+			  )
+			  AND NOT EXISTS (
+			    SELECT 1 FROM transactions t2
+			    WHERE t2.user_id = t.user_id
+			      AND t2.account_id != t.account_id
+			      AND t2.amount = -t.amount
+			      AND t2.date BETWEEN t.date - 1 AND t.date + 1
+			  )
+			  AND t.date >= $2 AND t.date < $3
+			ORDER BY t.name, t.date
 		`
 		args = []any{userID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}
 	} else {
 		query = `
-			SELECT name, amount, date::text
-			FROM transactions
-			WHERE user_id = $1
-			  AND personal_finance_category->>'primary' = 'INCOME'
-			  AND amount < 0
-			ORDER BY name, date
+			SELECT t.name, t.amount, t.date::text
+			FROM transactions t
+			WHERE t.user_id = $1
+			  AND t.amount < 0
+			  AND (
+			    t.personal_finance_category IS NULL
+			    OR t.personal_finance_category->>'primary' NOT IN (
+			      'LOAN_PAYMENTS', 'TRANSFER_OUT', 'BANK_FEES'
+			    )
+			  )
+			  AND NOT (
+			    t.personal_finance_category->>'primary' = 'TRANSFER_IN'
+			    AND t.personal_finance_category->>'detailed' IN (
+			      'TRANSFER_IN_ACCOUNT_TRANSFER', 'TRANSFER_IN_SAVINGS'
+			    )
+			  )
+			  AND NOT EXISTS (
+			    SELECT 1 FROM transactions t2
+			    WHERE t2.user_id = t.user_id
+			      AND t2.account_id != t.account_id
+			      AND t2.amount = -t.amount
+			      AND t2.date BETWEEN t.date - 1 AND t.date + 1
+			  )
+			ORDER BY t.name, t.date
 		`
 		args = []any{userID}
 	}
@@ -263,13 +307,27 @@ func queryIncomeStreams(r *http.Request, pool *pgxpool.Pool, userID string, star
 
 		displayName := txns[len(txns)-1].name
 
+		var totalAmount float64
+		var streamTxns []streamTransaction
+		for _, t := range txns {
+			absAmt := math.Abs(t.amount)
+			totalAmount += absAmt
+			streamTxns = append(streamTxns, streamTransaction{
+				Date:   t.date,
+				Amount: math.Round(absAmt*100) / 100,
+				Name:   t.name,
+			})
+		}
+
 		detected = append(detected, detectedStream{
 			Name:             displayName,
 			EstimatedAmount:  math.Round(estAmount*100) / 100,
+			TotalAmount:      math.Round(totalAmount*100) / 100,
 			Frequency:        freq,
 			NextExpectedDate: nextDate,
 			Occurrences:      len(txns),
 			Confidence:       confidence,
+			Transactions:     streamTxns,
 		})
 	}
 

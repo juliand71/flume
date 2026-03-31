@@ -4,17 +4,16 @@ struct IncomeConfirmStepView: View {
     let viewModel: OnboardingViewModel
     @Environment(AuthService.self) private var authService
 
-    @State private var editableStreams: [EditableStream] = []
-    @State private var isSaving = false
+    @State private var includedStreamNames: Set<String> = []
+    @State private var manualStreams: [ManualStream] = []
     @State private var showManualEntry = false
+    @State private var isSaving = false
 
-    struct EditableStream: Identifiable {
+    struct ManualStream: Identifiable {
         let id = UUID()
         var name: String
         var amount: String
-        var frequency: String
-        var nextExpectedDate: String?
-        var confidence: String
+        var frequency: String = "monthly"
     }
 
     var body: some View {
@@ -26,7 +25,7 @@ struct IncomeConfirmStepView: View {
                 Spacer()
                 ProgressView("Detecting income patterns...")
                 Spacer()
-            } else if editableStreams.isEmpty {
+            } else if viewModel.detectedStreams.isEmpty && manualStreams.isEmpty {
                 noIncomeDetectedView
             } else {
                 detectedStreamsView
@@ -37,16 +36,8 @@ struct IncomeConfirmStepView: View {
         .task {
             guard let token = authService.accessToken else { return }
             await viewModel.detectIncome(accessToken: token)
-            editableStreams = viewModel.detectedStreams.map { stream in
-                EditableStream(
-                    name: stream.name,
-                    amount: "\(stream.estimatedAmount)",
-                    frequency: stream.frequency,
-                    nextExpectedDate: stream.nextExpectedDate,
-                    confidence: stream.confidence
-                )
-            }
-            if editableStreams.isEmpty {
+            includedStreamNames = Set(viewModel.detectedStreams.map { $0.name })
+            if viewModel.detectedStreams.isEmpty {
                 showManualEntry = true
             }
         }
@@ -60,7 +51,7 @@ struct IncomeConfirmStepView: View {
             .multilineTextAlignment(.center)
             .foregroundStyle(.secondary)
 
-        manualEntryForm
+        manualEntryButton
 
         Spacer()
 
@@ -81,17 +72,15 @@ struct IncomeConfirmStepView: View {
 
         ScrollView {
             VStack(spacing: 16) {
-                ForEach($editableStreams) { $stream in
-                    streamCard(stream: $stream)
+                ForEach(viewModel.detectedStreams) { stream in
+                    streamCard(stream: stream)
                 }
 
-                if showManualEntry {
-                    manualEntryForm
-                } else {
-                    Button("Add Another") {
-                        showManualEntry = true
-                    }
+                ForEach($manualStreams) { $manual in
+                    manualStreamCard(stream: $manual)
                 }
+
+                manualEntryButton
             }
         }
 
@@ -99,18 +88,74 @@ struct IncomeConfirmStepView: View {
     }
 
     @ViewBuilder
-    private func streamCard(stream: Binding<EditableStream>) -> some View {
+    private func streamCard(stream: DetectedIncomeStream) -> some View {
+        let isIncluded = includedStreamNames.contains(stream.name)
+
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                TextField("Name", text: stream.name)
-                    .font(.headline)
+                Toggle(isOn: Binding(
+                    get: { isIncluded },
+                    set: { newValue in
+                        if newValue {
+                            includedStreamNames.insert(stream.name)
+                        } else {
+                            includedStreamNames.remove(stream.name)
+                        }
+                    }
+                )) {
+                    Text(stream.name)
+                        .font(.headline)
+                }
 
-                if stream.wrappedValue.confidence == "high" {
+                if stream.confidence == "high" {
                     Image(systemName: "checkmark.seal.fill")
                         .foregroundStyle(.green)
                         .font(.caption)
                 }
             }
+
+            HStack {
+                Text("$\(stream.totalAmount as NSDecimalNumber, formatter: Self.currencyFormatter)")
+                    .font(.title3.weight(.semibold))
+
+                Spacer()
+
+                Text(Self.frequencyLabel(stream.frequency))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.secondary.opacity(0.15), in: Capsule())
+            }
+
+            DisclosureGroup("Transactions (\(stream.occurrences))") {
+                VStack(spacing: 4) {
+                    ForEach(stream.transactions) { txn in
+                        HStack {
+                            Text(txn.date)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(txn.amount, format: .currency(code: "USD"))
+                                .font(.caption.monospacedDigit())
+                        }
+                    }
+                }
+                .padding(.top, 4)
+            }
+            .font(.subheadline)
+        }
+        .padding()
+        .background(.quaternary.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .opacity(isIncluded ? 1.0 : 0.5)
+    }
+
+    @ViewBuilder
+    private func manualStreamCard(stream: Binding<ManualStream>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Income source name", text: stream.name)
+                .font(.headline)
 
             HStack {
                 Text("$")
@@ -119,19 +164,12 @@ struct IncomeConfirmStepView: View {
                     .keyboardType(.decimalPad)
                     #endif
             }
-
-            Picker("Frequency", selection: stream.frequency) {
-                Text("Weekly").tag("weekly")
-                Text("Biweekly").tag("biweekly")
-                Text("Semimonthly").tag("semimonthly")
-                Text("Monthly").tag("monthly")
-            }
-            .pickerStyle(.segmented)
+            .textFieldStyle(.roundedBorder)
 
             HStack {
                 Spacer()
                 Button("Remove", role: .destructive) {
-                    editableStreams.removeAll { $0.id == stream.wrappedValue.id }
+                    manualStreams.removeAll { $0.id == stream.wrappedValue.id }
                 }
                 .font(.caption)
             }
@@ -142,16 +180,9 @@ struct IncomeConfirmStepView: View {
     }
 
     @ViewBuilder
-    private var manualEntryForm: some View {
+    private var manualEntryButton: some View {
         Button {
-            editableStreams.append(EditableStream(
-                name: "",
-                amount: "",
-                frequency: "monthly",
-                nextExpectedDate: nil,
-                confidence: "manual"
-            ))
-            showManualEntry = false
+            manualStreams.append(ManualStream(name: "", amount: ""))
         } label: {
             Label("Add Income Source", systemImage: "plus.circle")
         }
@@ -172,7 +203,7 @@ struct IncomeConfirmStepView: View {
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .disabled(editableStreams.isEmpty || isSaving || editableStreams.contains { $0.name.isEmpty || $0.amount.isEmpty })
+        .disabled(isSaving || (includedStreamNames.isEmpty && manualStreams.isEmpty))
     }
 
     private func confirmAll() async {
@@ -180,17 +211,54 @@ struct IncomeConfirmStepView: View {
         isSaving = true
         defer { isSaving = false }
 
-        for stream in editableStreams {
-            guard let amount = Decimal(string: stream.amount), amount > 0 else { continue }
+        var totalIncome: Decimal = 0
+
+        // Confirm included detected streams
+        for stream in viewModel.detectedStreams where includedStreamNames.contains(stream.name) {
             _ = await viewModel.confirmIncomeStream(
                 name: stream.name,
-                estimatedAmount: amount,
+                estimatedAmount: stream.estimatedAmount,
                 frequency: stream.frequency,
                 nextExpectedDate: stream.nextExpectedDate,
                 accessToken: token
             )
+            totalIncome += stream.totalAmount
         }
 
+        // Confirm manual streams
+        for manual in manualStreams {
+            guard let amount = Decimal(string: manual.amount), amount > 0 else { continue }
+            _ = await viewModel.confirmIncomeStream(
+                name: manual.name,
+                estimatedAmount: amount,
+                frequency: manual.frequency,
+                nextExpectedDate: nil,
+                accessToken: token
+            )
+            totalIncome += amount
+        }
+
+        viewModel.confirmedIncomeTotal = totalIncome
         await viewModel.advanceStep(accessToken: token)
+    }
+
+    // MARK: - Helpers
+
+    private static let currencyFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.minimumFractionDigits = 2
+        f.maximumFractionDigits = 2
+        return f
+    }()
+
+    private static func frequencyLabel(_ frequency: String) -> String {
+        switch frequency {
+        case "weekly": return "Weekly"
+        case "biweekly": return "Bi-weekly"
+        case "semimonthly": return "Semi-monthly"
+        case "monthly": return "Monthly"
+        default: return frequency
+        }
     }
 }

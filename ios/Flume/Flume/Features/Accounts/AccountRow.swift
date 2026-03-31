@@ -5,9 +5,9 @@ struct AccountRow: View {
 
     private var roleLabel: String? {
         switch account.accountRole {
-        case "checking":    return "Basin"
-        case "savings":     return "Cistern"
-        case "credit_card": return "Canal"
+        case "checking":    return "Checking"
+        case "savings":     return "Savings"
+        case "credit_card": return "Credit Card"
         default:            return nil
         }
     }

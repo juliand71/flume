@@ -10,7 +10,7 @@ struct MainTabView: View {
         TabView {
             NavigationStack {
                 BudgetPeriodView(viewModel: budgetViewModel)
-                    .navigationTitle("Flux")
+                    .navigationTitle("Budget")
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
                             Button("Sign Out") {
@@ -20,20 +20,20 @@ struct MainTabView: View {
                     }
             }
             .tabItem {
-                Label("Flux", systemImage: "drop.circle")
+                Label("Budget", systemImage: "chart.pie")
             }
 
             NavigationStack {
                 SavingsGoalListView(viewModel: savingsGoalViewModel)
-                    .navigationTitle("Cistern")
+                    .navigationTitle("Goals")
             }
             .tabItem {
-                Label("Cistern", systemImage: "cup.and.heat.waves")
+                Label("Goals", systemImage: "target")
             }
 
             NavigationStack {
                 AccountsListView(viewModel: accountsViewModel)
-                    .navigationTitle("Basins")
+                    .navigationTitle("Accounts")
                     .navigationDestination(for: Account.self) { account in
                         TransactionsListView(account: account)
                     }
@@ -44,7 +44,7 @@ struct MainTabView: View {
                     }
             }
             .tabItem {
-                Label("Basins", systemImage: "building.columns")
+                Label("Accounts", systemImage: "building.columns")
             }
         }
     }

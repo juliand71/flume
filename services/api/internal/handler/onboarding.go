@@ -11,7 +11,8 @@ import (
 
 var onboardingStepOrder = []string{
 	"welcome", "link_bank", "syncing", "choose_period",
-	"confirm_income", "create_budget", "savings_goal", "complete",
+	"confirm_income", "confirm_fixed", "confirm_flex",
+	"review_savings", "savings_goal", "complete",
 }
 
 func stepIndex(step string) int {

@@ -27,7 +27,7 @@ struct SavingsGoalFillView: View {
             Form {
                 Section {
                     HStack {
-                        Text("Spillover")
+                        Text("Surplus")
                             .font(.headline)
                         Spacer()
                         Text(surplus, format: .currency(code: "USD"))
@@ -42,7 +42,7 @@ struct SavingsGoalFillView: View {
                     }
                 }
 
-                Section("Allocate to Buckets") {
+                Section("Allocate to Goals") {
                     ForEach(viewModel.goals) { goal in
                         HStack {
                             if let emoji = goal.emoji {
@@ -76,7 +76,7 @@ struct SavingsGoalFillView: View {
                     .disabled(allocations.isEmpty || remaining < 0)
                 }
             }
-            .navigationTitle("Fill Buckets")
+            .navigationTitle("Fund Goals")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

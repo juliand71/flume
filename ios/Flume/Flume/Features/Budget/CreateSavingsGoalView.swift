@@ -28,7 +28,7 @@ struct CreateSavingsGoalView: View {
                     Toggle("Emergency Fund", isOn: $isEmergencyFund)
                 }
             }
-            .navigationTitle("New Bucket")
+            .navigationTitle("New Goal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

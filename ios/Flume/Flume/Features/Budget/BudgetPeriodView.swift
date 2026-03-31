@@ -61,7 +61,7 @@ struct BudgetPeriodView: View {
 
                     Section {
                         HStack {
-                            Text("Spillover")
+                            Text("Surplus")
                                 .font(.headline)
                             Spacer()
                             Text(period.surplus ?? 0, format: .currency(code: "USD"))
@@ -74,7 +74,7 @@ struct BudgetPeriodView: View {
                             Button {
                                 showingFillSheet = true
                             } label: {
-                                Label("Fill Buckets", systemImage: "arrow.down.to.line")
+                                Label("Fund Goals", systemImage: "arrow.down.to.line")
                             }
                         }
                     }
@@ -83,8 +83,8 @@ struct BudgetPeriodView: View {
                 ProgressView()
             } else {
                 ContentUnavailableView(
-                    "No Active Flux",
-                    systemImage: "drop.circle",
+                    "No Active Budget",
+                    systemImage: "chart.pie",
                     description: Text("Create a budget period to get started.")
                 )
             }

@@ -1,5 +1,8 @@
 import type { FastifyRequest } from 'fastify'
-import { supabase } from './supabase.js'
+import { createRemoteJWKSet, jwtVerify } from 'jose'
+
+const supabaseURL = process.env.SUPABASE_URL!
+const JWKS = createRemoteJWKSet(new URL(`${supabaseURL}/auth/v1/.well-known/jwks.json`))
 
 export async function authenticateUser(request: FastifyRequest): Promise<string> {
   const authHeader = request.headers.authorization
@@ -8,11 +11,13 @@ export async function authenticateUser(request: FastifyRequest): Promise<string>
   }
 
   const token = authHeader.slice(7)
-  const { data, error } = await supabase.auth.getUser(token)
 
-  if (error || !data.user) {
+  try {
+    const { payload } = await jwtVerify(token, JWKS)
+    const sub = payload.sub
+    if (!sub) throw new Error('missing sub')
+    return sub
+  } catch {
     throw { statusCode: 401, message: 'Invalid token' }
   }
-
-  return data.user.id
 }
