@@ -14,10 +14,10 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/joho/godotenv"
-	"github.com/julianwachholz/flume/services/api/internal/auth"
-	"github.com/julianwachholz/flume/services/api/internal/db"
-	"github.com/julianwachholz/flume/services/api/internal/docs"
-	"github.com/julianwachholz/flume/services/api/internal/handler"
+	"github.com/juliand71/flume/services/api/internal/auth"
+	"github.com/juliand71/flume/services/api/internal/db"
+	"github.com/juliand71/flume/services/api/internal/docs"
+	"github.com/juliand71/flume/services/api/internal/handler"
 )
 
 func main() {

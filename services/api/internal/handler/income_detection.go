@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/julianwachholz/flume/services/api/internal/auth"
+	"github.com/juliand71/flume/services/api/internal/auth"
 )
 
 var trailingDigitsRe = regexp.MustCompile(`\s*\d{3,}$`)

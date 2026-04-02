@@ -1,4 +1,4 @@
-module github.com/julianwachholz/flume/services/api
+module github.com/juliand71/flume/services/api
 
 go 1.26.1
 
