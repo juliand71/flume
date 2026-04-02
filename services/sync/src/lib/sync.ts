@@ -14,6 +14,13 @@ interface TransactionRow {
   personal_finance_category: object | null
 }
 
+function normalizeTxnName(name: string): string {
+  let s = name.toLowerCase().trim()
+  s = s.replace(/\s*\d{3,}$/, '')
+  s = s.replace(/\s+/g, ' ')
+  return s.trim()
+}
+
 export async function syncTransactions(plaidItemInternalId: string) {
   // Fetch the plaid item to get access_token, cursor, and user_id
   const { data: item, error: itemError } = await supabase
@@ -69,6 +76,34 @@ export async function syncTransactions(plaidItemInternalId: string) {
 
       if (upsertError) {
         throw { statusCode: 500, message: `Failed to upsert transactions: ${upsertError.message}` }
+      }
+
+      // Auto-categorize transactions matching confirmed income streams
+      const { data: incomeStreams } = await supabase
+        .from('income_streams')
+        .select('name')
+        .eq('user_id', item.user_id)
+        .eq('active', true)
+
+      if (incomeStreams && incomeStreams.length > 0) {
+        const normalizedStreamNames = new Set(
+          incomeStreams.map((s) => normalizeTxnName(s.name))
+        )
+
+        const incomeMatchIds: string[] = []
+        for (const txn of toUpsert) {
+          if (txn.amount < 0 && normalizedStreamNames.has(normalizeTxnName(txn.name))) {
+            incomeMatchIds.push(txn.transaction_id)
+          }
+        }
+
+        if (incomeMatchIds.length > 0) {
+          await supabase
+            .from('transactions')
+            .update({ category_override: 'income' })
+            .in('plaid_transaction_id', incomeMatchIds)
+            .is('category_override', null)
+        }
       }
     }
 

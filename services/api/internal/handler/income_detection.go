@@ -34,6 +34,7 @@ type detectedStream struct {
 	Name             string              `json:"name"`
 	EstimatedAmount  float64             `json:"estimated_amount"`
 	TotalAmount      float64             `json:"total_amount"`
+	PeriodAmount     float64             `json:"period_amount"`
 	Frequency        string              `json:"frequency"`
 	NextExpectedDate *string             `json:"next_expected_date"`
 	Occurrences      int                 `json:"occurrences"`
@@ -47,6 +48,27 @@ type incomeDetectionResponse struct {
 	TransactionCount      int              `json:"transaction_count"`
 	DateRangeDays         int              `json:"date_range_days"`
 	ExpandedSearch        bool             `json:"expanded_search"`
+}
+
+func computePeriodAmount(estimatedAmount float64, frequency string, periodDays int) float64 {
+	var intervalDays float64
+	switch frequency {
+	case "weekly":
+		intervalDays = 7
+	case "biweekly":
+		intervalDays = 14
+	case "semimonthly":
+		intervalDays = 15.2
+	case "monthly":
+		intervalDays = 30.4
+	default:
+		intervalDays = 30.4
+	}
+	occurrences := math.Round(float64(periodDays) / intervalDays)
+	if occurrences < 1 {
+		occurrences = 1
+	}
+	return math.Round(estimatedAmount*occurrences*100) / 100
 }
 
 func DetectIncome(pool *pgxpool.Pool) http.HandlerFunc {
@@ -68,6 +90,12 @@ func DetectIncome(pool *pgxpool.Pool) http.HandlerFunc {
 			}
 		}
 
+		// Compute period length for per-period income scaling
+		periodDays := 0
+		if startDate != nil && endDate != nil {
+			periodDays = int(endDate.Sub(*startDate).Hours()/24) + 1
+		}
+
 		detected, err := queryIncomeStreams(r, pool, userID, startDate, endDate)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to detect income")
@@ -84,6 +112,13 @@ func DetectIncome(pool *pgxpool.Pool) http.HandlerFunc {
 			}
 			if len(detected) > 0 {
 				expandedSearch = true
+			}
+		}
+
+		// Set period amount on each detected stream
+		if periodDays > 0 {
+			for i := range detected {
+				detected[i].PeriodAmount = computePeriodAmount(detected[i].EstimatedAmount, detected[i].Frequency, periodDays)
 			}
 		}
 

@@ -12,6 +12,7 @@ struct DetectedIncomeStream: Codable, Sendable, Identifiable {
     let name: String
     let estimatedAmount: Decimal
     let totalAmount: Decimal
+    let periodAmount: Decimal?
     let frequency: String
     let nextExpectedDate: String?
     let occurrences: Int

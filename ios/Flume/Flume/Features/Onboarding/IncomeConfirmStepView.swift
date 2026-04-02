@@ -115,7 +115,7 @@ struct IncomeConfirmStepView: View {
             }
 
             HStack {
-                Text("$\(stream.totalAmount as NSDecimalNumber, formatter: Self.currencyFormatter)")
+                Text("$\((stream.periodAmount ?? stream.estimatedAmount) as NSDecimalNumber, formatter: Self.currencyFormatter)")
                     .font(.title3.weight(.semibold))
 
                 Spacer()
@@ -222,7 +222,7 @@ struct IncomeConfirmStepView: View {
                 nextExpectedDate: stream.nextExpectedDate,
                 accessToken: token
             )
-            totalIncome += stream.totalAmount
+            totalIncome += stream.periodAmount ?? stream.estimatedAmount
         }
 
         // Confirm manual streams
