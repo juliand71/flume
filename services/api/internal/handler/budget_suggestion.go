@@ -11,6 +11,67 @@ import (
 	"github.com/juliand71/flume/services/api/internal/auth"
 )
 
+func computeSuggestionDates(today time.Time, frequency string, nextExpectedDate *string) (start, end time.Time) {
+	switch frequency {
+	case "monthly":
+		start = time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC)
+		end = start.AddDate(0, 1, 0)
+
+	case "biweekly":
+		if nextExpectedDate != nil {
+			nd, err := time.Parse("2006-01-02", *nextExpectedDate)
+			if err == nil {
+				start = nd
+				for start.After(today) {
+					start = start.AddDate(0, 0, -14)
+				}
+			} else {
+				start = today
+			}
+		} else {
+			start = today
+		}
+		end = start.AddDate(0, 0, 14)
+
+	case "semimonthly":
+		if today.Day() <= 15 {
+			start = time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC)
+			end = time.Date(today.Year(), today.Month(), 16, 0, 0, 0, 0, time.UTC)
+		} else {
+			start = time.Date(today.Year(), today.Month(), 16, 0, 0, 0, 0, time.UTC)
+			end = time.Date(today.Year(), today.Month()+1, 1, 0, 0, 0, 0, time.UTC)
+		}
+
+	case "weekly":
+		if nextExpectedDate != nil {
+			nd, err := time.Parse("2006-01-02", *nextExpectedDate)
+			if err == nil {
+				start = nd
+				for start.After(today) {
+					start = start.AddDate(0, 0, -7)
+				}
+			} else {
+				start = today
+			}
+		} else {
+			start = today
+		}
+		end = start.AddDate(0, 0, 7)
+
+	default:
+		start = time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC)
+		end = start.AddDate(0, 1, 0)
+	}
+	return
+}
+
+func computeBudgetSplit(incomeTarget float64) (fixed, flex, savings float64) {
+	fixed = math.Round(incomeTarget*0.50*100) / 100
+	flex = math.Round(incomeTarget*0.30*100) / 100
+	savings = math.Round(incomeTarget*0.20*100) / 100
+	return
+}
+
 type budgetSuggestion struct {
 	StartDate    string  `json:"start_date"`
 	EndDate      string  `json:"end_date"`
@@ -51,66 +112,10 @@ func SuggestPeriod(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 
 		today := time.Now().UTC().Truncate(24 * time.Hour)
-		var startDate, endDate time.Time
+		startDate, endDate := computeSuggestionDates(today, frequency, nextExpectedDate)
 
-		switch frequency {
-		case "monthly":
-			startDate = time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC)
-			endDate = startDate.AddDate(0, 1, 0)
-
-		case "biweekly":
-			if nextExpectedDate != nil {
-				nd, err := time.Parse("2006-01-02", *nextExpectedDate)
-				if err == nil {
-					// Find the most recent pay date on or before today
-					startDate = nd
-					for startDate.After(today) {
-						startDate = startDate.AddDate(0, 0, -14)
-					}
-				} else {
-					startDate = today
-				}
-			} else {
-				startDate = today
-			}
-			endDate = startDate.AddDate(0, 0, 14)
-
-		case "semimonthly":
-			if today.Day() <= 15 {
-				startDate = time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC)
-				endDate = time.Date(today.Year(), today.Month(), 16, 0, 0, 0, 0, time.UTC)
-			} else {
-				startDate = time.Date(today.Year(), today.Month(), 16, 0, 0, 0, 0, time.UTC)
-				endDate = time.Date(today.Year(), today.Month()+1, 1, 0, 0, 0, 0, time.UTC)
-			}
-
-		case "weekly":
-			if nextExpectedDate != nil {
-				nd, err := time.Parse("2006-01-02", *nextExpectedDate)
-				if err == nil {
-					startDate = nd
-					for startDate.After(today) {
-						startDate = startDate.AddDate(0, 0, -7)
-					}
-				} else {
-					startDate = today
-				}
-			} else {
-				startDate = today
-			}
-			endDate = startDate.AddDate(0, 0, 7)
-
-		default:
-			// Fallback to monthly
-			startDate = time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC)
-			endDate = startDate.AddDate(0, 1, 0)
-		}
-
-		// 50/30/20 split
 		incomeTarget := estimatedAmount
-		fixedTarget := math.Round(incomeTarget*0.50*100) / 100
-		flexTarget := math.Round(incomeTarget*0.30*100) / 100
-		savingsTarget := math.Round(incomeTarget*0.20*100) / 100
+		fixedTarget, flexTarget, savingsTarget := computeBudgetSplit(incomeTarget)
 
 		suggestion := budgetSuggestion{
 			StartDate:     startDate.Format("2006-01-02"),

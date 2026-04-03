@@ -46,8 +46,13 @@ final class OnboardingViewModel {
     var biweeklyAnchorDate: Date?
     var weeklyStartDay: Int = 2 // 1=Sun..7=Sat, default Mon
 
-    private let budgetAPI = BudgetAPIService.shared
+    private let budgetAPI: BudgetAPIServiceProtocol
     private var pollingTask: Task<Void, Never>?
+    var dateProvider: () -> Date = { Date() }
+
+    init(budgetAPI: BudgetAPIServiceProtocol = BudgetAPIService.shared) {
+        self.budgetAPI = budgetAPI
+    }
 
     // MARK: - Computed
 
@@ -115,9 +120,10 @@ final class OnboardingViewModel {
             var elapsed = 0
             while !Task.isCancelled {
                 do {
-                    let status = try await BudgetAPIService.shared.fetchSyncStatus(accessToken: accessToken)
+                    guard let self else { return }
+                    let status = try await self.budgetAPI.fetchSyncStatus(accessToken: accessToken)
                     if status.transactionCount > 0 {
-                        await self?.advanceTo(step: .choosePeriod, accessToken: accessToken)
+                        await self.advanceTo(step: .choosePeriod, accessToken: accessToken)
                         return
                     }
                 } catch {
@@ -254,7 +260,7 @@ final class OnboardingViewModel {
 
     func computePeriodDates() {
         let calendar = Calendar.current
-        let today = Date()
+        let today = dateProvider()
 
         switch selectedPeriodType {
         case "monthly":
@@ -276,8 +282,14 @@ final class OnboardingViewModel {
         case "biweekly":
             guard let anchor = biweeklyAnchorDate else { return }
             var start = anchor
-            while start > today {
-                start = calendar.date(byAdding: .day, value: -14, to: start)!
+            if start > today {
+                while start > today {
+                    start = calendar.date(byAdding: .day, value: -14, to: start)!
+                }
+            } else {
+                while calendar.date(byAdding: .day, value: 14, to: start)! <= today {
+                    start = calendar.date(byAdding: .day, value: 14, to: start)!
+                }
             }
             periodStartDate = start
             periodEndDate = calendar.date(byAdding: .day, value: 14, to: start)
