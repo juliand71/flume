@@ -19,6 +19,10 @@ final class OnboardingViewModel {
     var isLoading = false
     var errorMessage: String?
 
+    // Multi-bank linking
+    var hasSyncedTransactions = false
+    var linkedInstitutionNames: [String] = []
+
     // Income detection
     var detectedStreams: [DetectedIncomeStream] = []
     var monthlyExpenseEstimate: Decimal = 0
@@ -123,7 +127,7 @@ final class OnboardingViewModel {
                     guard let self else { return }
                     let status = try await self.budgetAPI.fetchSyncStatus(accessToken: accessToken)
                     if status.transactionCount > 0 {
-                        await self.advanceTo(step: .choosePeriod, accessToken: accessToken)
+                        self.hasSyncedTransactions = true
                         return
                     }
                 } catch {
@@ -136,6 +140,11 @@ final class OnboardingViewModel {
                 }
             }
         }
+    }
+
+    func restartPollingSync(accessToken: String) {
+        hasSyncedTransactions = false
+        startPollingSync(accessToken: accessToken)
     }
 
     func stopPollingSync() {

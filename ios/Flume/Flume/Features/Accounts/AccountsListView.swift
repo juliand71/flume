@@ -39,4 +39,5 @@ struct AccountsListView: View {
 
 extension Notification.Name {
     static let accountsDidChange = Notification.Name("accountsDidChange")
+    static let budgetRecalculationNeeded = Notification.Name("budgetRecalculationNeeded")
 }

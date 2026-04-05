@@ -66,6 +66,7 @@ struct PlaidLinkButton: View {
                     accessToken: accessToken
                 )
                 NotificationCenter.default.post(name: .accountsDidChange, object: nil)
+                NotificationCenter.default.post(name: .budgetRecalculationNeeded, object: nil)
             } catch {
                 errorMessage = error.localizedDescription
             }

@@ -73,6 +73,8 @@ struct LinkBankStepView: View {
         guard let accessToken = authService.accessToken else { return }
         switch result {
         case .success(let publicToken, let institutionName, let institutionId):
+            // Track institution name for display in syncing step
+            viewModel.linkedInstitutionNames.append(institutionName)
             // Advance to syncing step immediately, fire exchange in background
             await viewModel.advanceTo(step: .syncing, accessToken: accessToken)
             Task {

@@ -3,6 +3,7 @@ import SwiftUI
 struct BudgetPeriodView: View {
     @Bindable var viewModel: BudgetPeriodViewModel
     @State private var showingFillSheet = false
+    @State private var showingSuggestionSheet = false
     @State private var fillViewModel = SavingsGoalViewModel()
 
     var body: some View {
@@ -94,11 +95,22 @@ struct BudgetPeriodView: View {
                 SavingsGoalFillView(viewModel: fillViewModel, surplus: period.surplus ?? 0)
             }
         }
+        .sheet(isPresented: $showingSuggestionSheet) {
+            BudgetUpdateSuggestionView(viewModel: viewModel)
+        }
         .refreshable {
             await viewModel.refresh()
         }
         .task {
             await viewModel.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .budgetRecalculationNeeded)) { _ in
+            Task {
+                await viewModel.recalculateBudget()
+                if viewModel.suggestions != nil {
+                    showingSuggestionSheet = true
+                }
+            }
         }
     }
 }
