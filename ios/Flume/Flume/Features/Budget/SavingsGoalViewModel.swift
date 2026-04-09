@@ -4,8 +4,17 @@ import Supabase
 @Observable
 final class SavingsGoalViewModel {
     var goals: [SavingsGoal] = []
+    var savingsAccountBalance: Decimal = 0
     var isLoading = false
     var errorMessage: String?
+
+    var totalAllocated: Decimal {
+        goals.map(\.currentAmount).reduce(0, +)
+    }
+
+    var unallocatedSavings: Decimal {
+        max(savingsAccountBalance - totalAllocated, 0)
+    }
 
     private let client = SupabaseService.shared
 
@@ -14,7 +23,15 @@ final class SavingsGoalViewModel {
         errorMessage = nil
         do {
             let accessToken = try await client.auth.session.accessToken
-            goals = try await BudgetAPIService.shared.fetchSavingsGoals(accessToken: accessToken)
+            async let goalsFetch = BudgetAPIService.shared.fetchSavingsGoals(accessToken: accessToken)
+            async let accountsFetch = BudgetAPIService.shared.fetchAccounts(accessToken: accessToken)
+            let (fetchedGoals, accounts) = try await (goalsFetch, accountsFetch)
+            goals = fetchedGoals
+            let savingsAccounts = accounts.filter { $0.accountRole == "savings" }
+            let relevant = savingsAccounts.isEmpty
+                ? accounts.filter { $0.accountRole != "credit_card" }
+                : savingsAccounts
+            savingsAccountBalance = relevant.compactMap { $0.currentBalance }.reduce(0, +)
         } catch {
             errorMessage = error.localizedDescription
         }

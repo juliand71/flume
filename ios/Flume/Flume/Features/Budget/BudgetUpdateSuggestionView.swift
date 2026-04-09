@@ -13,7 +13,7 @@ struct BudgetUpdateSuggestionView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if let period = viewModel.currentPeriod, let suggestions = viewModel.suggestions {
+                if let period = viewModel.selectedPeriod, let suggestions = viewModel.suggestions {
                     Section("Suggested Changes") {
                         if let income = suggestions.incomeTarget {
                             SuggestionRow(title: "Income", current: period.incomeTarget, suggested: income)

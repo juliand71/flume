@@ -248,7 +248,28 @@ final class OnboardingViewModel {
 
     // MARK: - Savings Goal
 
+    var savingsAccountBalance: Decimal = 0
+    var createdEmergencyFundTarget: Decimal = 0
+
+    var unallocatedSavings: Decimal {
+        max(savingsAccountBalance - createdEmergencyFundTarget, 0)
+    }
+
+    func fetchSavingsBalance(accessToken: String) async {
+        do {
+            let accounts = try await budgetAPI.fetchAccounts(accessToken: accessToken)
+            let savingsAccounts = accounts.filter { $0.accountRole == "savings" }
+            let relevant = savingsAccounts.isEmpty
+                ? accounts.filter { $0.accountRole != "credit_card" }
+                : savingsAccounts
+            savingsAccountBalance = relevant.compactMap { $0.currentBalance }.reduce(0, +)
+        } catch {
+            savingsAccountBalance = 0
+        }
+    }
+
     func createEmergencyFund(targetAmount: Decimal, accessToken: String) async -> Bool {
+        createdEmergencyFundTarget = targetAmount
         do {
             _ = try await budgetAPI.createSavingsGoal(
                 name: "Emergency Fund",
@@ -261,6 +282,35 @@ final class OnboardingViewModel {
             return true
         } catch {
             errorMessage = "Failed to create emergency fund: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    func createAndFillAdditionalGoals(
+        drafts: [(name: String, emoji: String?, targetAmount: Decimal, fillAmount: Decimal?)],
+        accessToken: String
+    ) async -> Bool {
+        do {
+            var allocations: [(savingsGoalId: String, amount: Decimal)] = []
+            for draft in drafts {
+                let goal = try await budgetAPI.createSavingsGoal(
+                    name: draft.name,
+                    targetAmount: draft.targetAmount,
+                    emoji: draft.emoji,
+                    isEmergencyFund: false,
+                    priority: 1,
+                    accessToken: accessToken
+                )
+                if let fill = draft.fillAmount, fill > 0 {
+                    allocations.append((savingsGoalId: goal.id.uuidString, amount: fill))
+                }
+            }
+            if !allocations.isEmpty {
+                _ = try await budgetAPI.fillSavingsGoals(allocations: allocations, accessToken: accessToken)
+            }
+            return true
+        } catch {
+            errorMessage = "Failed to create goals: \(error.localizedDescription)"
             return false
         }
     }

@@ -102,6 +102,7 @@ func main() {
 		r.Get("/budget/current-period", handler.GetCurrentPeriod(pool))
 		r.Get("/budget/periods", handler.ListPeriods(pool))
 		r.Post("/budget/periods", handler.CreatePeriod(pool))
+		r.Get("/budget/periods/{id}", handler.GetPeriodByID(pool))
 		r.Patch("/budget/periods/{id}", handler.UpdatePeriod(pool))
 
 		// Category summary

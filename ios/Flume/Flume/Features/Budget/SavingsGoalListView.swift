@@ -8,6 +8,11 @@ struct SavingsGoalListView: View {
         Group {
             if !viewModel.goals.isEmpty {
                 List {
+                    if viewModel.unallocatedSavings > 0 {
+                        Section {
+                            UnallocatedSavingsRow(amount: viewModel.unallocatedSavings)
+                        }
+                    }
                     ForEach(viewModel.goals) { goal in
                         NavigationLink {
                             SavingsGoalDetailView(viewModel: viewModel, goal: goal)
@@ -44,6 +49,27 @@ struct SavingsGoalListView: View {
         .task {
             await viewModel.fetchGoals()
         }
+    }
+}
+
+private struct UnallocatedSavingsRow: View {
+    let amount: Decimal
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Unallocated Savings")
+                    .font(.subheadline.weight(.medium))
+                Text("Not yet assigned to a goal")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(amount, format: .currency(code: "USD"))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.orange)
+        }
+        .padding(.vertical, 4)
     }
 }
 

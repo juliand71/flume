@@ -3,10 +3,13 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"log"
 	"net/http"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/juliand71/flume/services/api/internal/auth"
@@ -63,6 +66,68 @@ func currentPeriodForUser(ctx context.Context, pool *pgxpool.Pool, userID string
 		return nil, err
 	}
 	return &p, nil
+}
+
+func GetPeriodByID(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID := auth.UserID(r.Context())
+		id := chi.URLParam(r, "id")
+
+		var p budgetPeriod
+		err := pool.QueryRow(r.Context(), `
+			SELECT id::text, user_id::text, start_date::text, end_date::text,
+			       income_target, fixed_target, flex_target, savings_target,
+			       income_stream_id::text, created_at::text
+			FROM budget_periods
+			WHERE id = $1 AND user_id = $2
+		`, id, userID).Scan(
+			&p.ID, &p.UserID, &p.StartDate, &p.EndDate,
+			&p.IncomeTarget, &p.FixedTarget, &p.FlexTarget, &p.SavingsTarget,
+			&p.IncomeStreamID, &p.CreatedAt,
+		)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "budget period not found")
+			return
+		}
+
+		var actualIncome, actualFixed, actualFlex, actualSavings float64
+		err = pool.QueryRow(r.Context(), `
+			SELECT
+				coalesce(sum(amount) FILTER (WHERE budget_category = 'income'), 0),
+				coalesce(sum(amount) FILTER (WHERE budget_category = 'fixed'), 0),
+				coalesce(sum(amount) FILTER (WHERE budget_category = 'flex'), 0),
+				coalesce(sum(amount) FILTER (WHERE budget_category = 'savings'), 0)
+			FROM transactions_with_category
+			WHERE user_id = $1 AND date >= $2::date AND date < $3::date
+		`, userID, p.StartDate, p.EndDate).Scan(
+			&actualIncome, &actualFixed, &actualFlex, &actualSavings,
+		)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to compute actuals")
+			return
+		}
+
+		result := budgetPeriodWithActuals{
+			ID:             p.ID,
+			UserID:         p.UserID,
+			StartDate:      p.StartDate,
+			EndDate:        p.EndDate,
+			IncomeTarget:   p.IncomeTarget,
+			FixedTarget:    p.FixedTarget,
+			FlexTarget:     p.FlexTarget,
+			SavingsTarget:  p.SavingsTarget,
+			IncomeStreamID: p.IncomeStreamID,
+			CreatedAt:      p.CreatedAt,
+			ActualIncome:   actualIncome,
+			ActualFixed:    actualFixed,
+			ActualFlex:     actualFlex,
+			ActualSavings:  actualSavings,
+			Surplus:        -actualIncome - actualFixed - actualFlex,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+	}
 }
 
 func GetCurrentPeriod(pool *pgxpool.Pool) http.HandlerFunc {
@@ -217,6 +282,12 @@ func CreatePeriod(pool *pgxpool.Pool) http.HandlerFunc {
 			&p.IncomeStreamID, &p.CreatedAt,
 		)
 		if err != nil {
+			log.Printf("CreatePeriod error: %v", err)
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				writeError(w, http.StatusConflict, "a budget period already exists for this start date")
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "failed to create budget period")
 			return
 		}

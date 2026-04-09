@@ -67,6 +67,10 @@ struct BudgetAPIService: Sendable {
         return try await get(path: "/budget/current-period", accessToken: accessToken)
     }
 
+    func fetchPeriodById(_ id: String, accessToken: String) async throws -> BudgetPeriod {
+        return try await get(path: "/budget/periods/\(id)", accessToken: accessToken)
+    }
+
     func fetchPeriods(limit: Int = 20, offset: Int = 0, accessToken: String) async throws -> (periods: [BudgetPeriod], total: Int) {
         struct Response: Decodable {
             let periods: [BudgetPeriod]

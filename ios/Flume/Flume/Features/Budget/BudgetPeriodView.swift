@@ -8,11 +8,34 @@ struct BudgetPeriodView: View {
 
     var body: some View {
         Group {
-            if let period = viewModel.currentPeriod {
+            if let period = viewModel.selectedPeriod {
                 List {
                     Section {
-                        Text("\(period.startDate) — \(period.endDate)")
-                            .font(.headline)
+                        HStack {
+                            Button {
+                                Task { await viewModel.navigateBack() }
+                            } label: {
+                                Image(systemName: "chevron.left")
+                                    .fontWeight(.semibold)
+                            }
+                            .disabled(!viewModel.canGoBack)
+
+                            Spacer()
+
+                            Text("\(period.startDate) — \(period.endDate)")
+                                .font(.headline)
+
+                            Spacer()
+
+                            Button {
+                                Task { await viewModel.navigateForward() }
+                            } label: {
+                                Image(systemName: "chevron.right")
+                                    .fontWeight(.semibold)
+                            }
+                            .disabled(!viewModel.canGoForward)
+                        }
+                        .buttonStyle(.plain)
                     }
 
                     Section {
@@ -91,7 +114,7 @@ struct BudgetPeriodView: View {
             }
         }
         .sheet(isPresented: $showingFillSheet) {
-            if let period = viewModel.currentPeriod {
+            if let period = viewModel.selectedPeriod {
                 SavingsGoalFillView(viewModel: fillViewModel, surplus: period.surplus ?? 0)
             }
         }
