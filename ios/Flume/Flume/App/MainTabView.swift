@@ -5,6 +5,9 @@ struct MainTabView: View {
     @State private var accountsViewModel = AccountsViewModel()
     @State private var budgetViewModel = BudgetPeriodViewModel()
     @State private var savingsGoalViewModel = SavingsGoalViewModel()
+    #if DEBUG
+    @State private var showDebugSettings = false
+    #endif
 
     var body: some View {
         TabView {
@@ -17,6 +20,13 @@ struct MainTabView: View {
                                 Task { try? await authService.signOut() }
                             }
                         }
+                        #if DEBUG
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("Debug", systemImage: "ladybug") {
+                                showDebugSettings = true
+                            }
+                        }
+                        #endif
                     }
             }
             .tabItem {
@@ -47,5 +57,10 @@ struct MainTabView: View {
                 Label("Accounts", systemImage: "building.columns")
             }
         }
+        #if DEBUG
+        .sheet(isPresented: $showDebugSettings) {
+            DebugSettingsView()
+        }
+        #endif
     }
 }

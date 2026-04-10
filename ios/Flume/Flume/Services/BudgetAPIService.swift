@@ -244,10 +244,22 @@ struct BudgetAPIService: Sendable {
 
     // MARK: - Private
 
+    #if DEBUG
+    private func applyDebugHeaders(to request: inout URLRequest) {
+        let id = DebugUserStore.shared.activeUserID
+        if id != DebugUserStore.onboardedID {
+            request.setValue(id, forHTTPHeaderField: "X-Debug-User-ID")
+        }
+    }
+    #endif
+
     private func get<Response: Decodable>(path: String, accessToken: String) async throws -> Response {
         var request = URLRequest(url: URL(string: path, relativeTo: baseURL)!)
         request.httpMethod = "GET"
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        #if DEBUG
+        applyDebugHeaders(to: &request)
+        #endif
 
         let (data, httpResponse) = try await URLSession.shared.data(for: request)
 
@@ -266,6 +278,9 @@ struct BudgetAPIService: Sendable {
         request.httpMethod = "PATCH"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        #if DEBUG
+        applyDebugHeaders(to: &request)
+        #endif
         request.httpBody = try JSONEncoder().encode(body)
 
         let (data, httpResponse) = try await URLSession.shared.data(for: request)
@@ -285,6 +300,9 @@ struct BudgetAPIService: Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        #if DEBUG
+        applyDebugHeaders(to: &request)
+        #endif
         request.httpBody = try JSONEncoder().encode(body)
 
         let (data, httpResponse) = try await URLSession.shared.data(for: request)
@@ -303,6 +321,9 @@ struct BudgetAPIService: Sendable {
         var request = URLRequest(url: baseURL.appendingPathComponent(path))
         request.httpMethod = "DELETE"
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        #if DEBUG
+        applyDebugHeaders(to: &request)
+        #endif
 
         let (data, httpResponse) = try await URLSession.shared.data(for: request)
 

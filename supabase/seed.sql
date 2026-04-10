@@ -5,7 +5,10 @@
 
 INSERT INTO auth.users (
   id, instance_id, aud, role, email, encrypted_password,
-  email_confirmed_at, created_at, updated_at, confirmation_token,
+  email_confirmed_at, created_at, updated_at,
+  confirmation_token, recovery_token,
+  email_change_token_new, email_change, email_change_token_current,
+  phone_change, phone_change_token, reauthentication_token,
   raw_app_meta_data, raw_user_meta_data
 ) VALUES (
   '00000000-0000-0000-0000-000000000000',
@@ -13,7 +16,10 @@ INSERT INTO auth.users (
   'authenticated', 'authenticated',
   'debug@flume.local',
   crypt('debug123', gen_salt('bf')),
-  now(), now(), now(), '',
+  now(), now(), now(),
+  '', '',
+  '', '', '',
+  '', '', '',
   '{"provider":"email","providers":["email"]}',
   '{}'
 ) ON CONFLICT (id) DO NOTHING;
@@ -21,7 +27,34 @@ INSERT INTO auth.users (
 -- Profile with onboarding complete and a realistic data set loaded
 INSERT INTO public.profiles (id, display_name, onboarding_step)
 VALUES ('00000000-0000-0000-0000-000000000000', 'Debug User', 'complete')
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name, onboarding_step = EXCLUDED.onboarding_step;
+
+-- ── Debug user 2 (fresh / not onboarded) ────────────────────────────────────
+
+INSERT INTO auth.users (
+  id, instance_id, aud, role, email, encrypted_password,
+  email_confirmed_at, created_at, updated_at,
+  confirmation_token, recovery_token,
+  email_change_token_new, email_change, email_change_token_current,
+  phone_change, phone_change_token, reauthentication_token,
+  raw_app_meta_data, raw_user_meta_data
+) VALUES (
+  '00000000-0000-0000-0000-000000000001',
+  '00000000-0000-0000-0000-000000000000',
+  'authenticated', 'authenticated',
+  'debug2@flume.local',
+  crypt('debug123', gen_salt('bf')),
+  now(), now(), now(),
+  '', '',
+  '', '', '',
+  '', '', '',
+  '{"provider":"email","providers":["email"]}',
+  '{}'
+) ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.profiles (id, display_name, onboarding_step)
+VALUES ('00000000-0000-0000-0000-000000000001', 'Debug User 2', 'welcome')
+ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name, onboarding_step = EXCLUDED.onboarding_step;
 
 -- ── Plaid item (fake test bank) ─────────────────────────────────────────────
 
