@@ -16,5 +16,6 @@ struct BudgetPeriod: Codable, Identifiable, Sendable {
     let actualFixed: Decimal?
     let actualFlex: Decimal?
     let actualSavings: Decimal?
+    let totalFilled: Decimal?
     let surplus: Decimal?
 }

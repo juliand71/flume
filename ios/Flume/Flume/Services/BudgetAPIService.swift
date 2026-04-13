@@ -185,20 +185,29 @@ struct BudgetAPIService: Sendable {
         try await delete(path: "/budget/savings-goals/\(id)", accessToken: accessToken)
     }
 
-    func fillSavingsGoals(allocations: [(savingsGoalId: String, amount: Decimal)], accessToken: String) async throws -> [SavingsGoal] {
+    func fillSavingsGoals(allocations: [(savingsGoalId: String, amount: Decimal)], budgetPeriodId: String, accessToken: String) async throws -> [SavingsGoal] {
         struct Allocation: Encodable {
             let savings_goal_id: String
             let amount: Decimal
         }
         struct Body: Encodable {
+            let budget_period_id: String
             let allocations: [Allocation]
         }
         struct Response: Decodable {
             let savingsGoals: [SavingsGoal]
         }
-        let body = Body(allocations: allocations.map { Allocation(savings_goal_id: $0.savingsGoalId, amount: $0.amount) })
+        let body = Body(budget_period_id: budgetPeriodId, allocations: allocations.map { Allocation(savings_goal_id: $0.savingsGoalId, amount: $0.amount) })
         let response: Response = try await post(path: "/budget/savings-goals/fill", body: body, accessToken: accessToken)
         return response.savingsGoals
+    }
+
+    func fetchAllocations(periodId: String, accessToken: String) async throws -> [SavingsGoalAllocation] {
+        struct Response: Decodable {
+            let allocations: [SavingsGoalAllocation]
+        }
+        let response: Response = try await get(path: "/budget/periods/\(periodId)/allocations", accessToken: accessToken)
+        return response.allocations
     }
 
     // MARK: - Onboarding
@@ -334,4 +343,30 @@ struct BudgetAPIService: Sendable {
     }
 
     private struct ErrorResponse: Decodable { let error: String }
+
+    // MARK: - Debug Transaction Injection
+
+    #if DEBUG
+    struct DebugTransactionInput: Encodable {
+        let name: String
+        let amount: Decimal
+        let date: String
+        let personal_finance_category: PersonalFinanceCategory?
+    }
+
+    func createDebugTransactions(_ inputs: [DebugTransactionInput], accessToken: String) async throws -> [BudgetTransaction] {
+        struct Batch: Encodable { let transactions: [DebugTransactionInput] }
+        struct Response: Decodable { let transactions: [BudgetTransaction] }
+        let response: Response = try await post(
+            path: "/debug/transactions",
+            body: Batch(transactions: inputs),
+            accessToken: accessToken
+        )
+        return response.transactions
+    }
+
+    func deleteDebugTransactions(accessToken: String) async throws {
+        try await delete(path: "/debug/transactions", accessToken: accessToken)
+    }
+    #endif
 }

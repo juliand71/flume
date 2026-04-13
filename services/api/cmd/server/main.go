@@ -75,10 +75,17 @@ func main() {
 	// Public routes
 	r.Get("/health", handler.Health(pool))
 
-	// Swagger UI (debug mode only)
+	// Swagger UI + debug-only routes
 	if *debugMode {
 		r.Mount("/docs", docs.Routes())
 		log.Printf("Swagger UI available at http://localhost:%s/docs", port)
+
+		// Debug-only transaction endpoints (behind auth so X-Debug-User-ID works)
+		r.Group(func(r chi.Router) {
+			r.Use(authMiddleware)
+			r.Post("/debug/transactions", handler.CreateDebugTransaction(pool))
+			r.Delete("/debug/transactions", handler.DeleteDebugTransactions(pool))
+		})
 	}
 
 	// Authenticated routes
@@ -104,6 +111,7 @@ func main() {
 		r.Post("/budget/periods", handler.CreatePeriod(pool))
 		r.Get("/budget/periods/{id}", handler.GetPeriodByID(pool))
 		r.Patch("/budget/periods/{id}", handler.UpdatePeriod(pool))
+		r.Get("/budget/periods/{id}/allocations", handler.ListPeriodAllocations(pool))
 
 		// Category summary
 		r.Get("/budget/category-summary", handler.GetCategorySummary(pool))

@@ -173,13 +173,18 @@ func FillSavingsGoals(pool *pgxpool.Pool) http.HandlerFunc {
 		userID := auth.UserID(r.Context())
 
 		var body struct {
-			Allocations []struct {
+			BudgetPeriodID string `json:"budget_period_id"`
+			Allocations    []struct {
 				SavingsGoalID string  `json:"savings_goal_id"`
 				Amount        float64 `json:"amount"`
 			} `json:"allocations"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if body.BudgetPeriodID == "" {
+			writeError(w, http.StatusBadRequest, "budget_period_id is required")
 			return
 		}
 		if len(body.Allocations) == 0 {
@@ -195,6 +200,24 @@ func FillSavingsGoals(pool *pgxpool.Pool) http.HandlerFunc {
 				writeError(w, http.StatusBadRequest, "amount must be positive for each allocation")
 				return
 			}
+		}
+
+		// Verify the budget period is current (not past)
+		var periodExists bool
+		err := pool.QueryRow(r.Context(), `
+			SELECT EXISTS(
+				SELECT 1 FROM budget_periods
+				WHERE id = $1 AND user_id = $2
+				AND start_date <= CURRENT_DATE AND end_date > CURRENT_DATE
+			)
+		`, body.BudgetPeriodID, userID).Scan(&periodExists)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to verify budget period")
+			return
+		}
+		if !periodExists {
+			writeError(w, http.StatusBadRequest, "can only fund goals from the current budget period")
+			return
 		}
 
 		tx, err := pool.Begin(r.Context())
@@ -216,6 +239,16 @@ func FillSavingsGoals(pool *pgxpool.Pool) http.HandlerFunc {
 			}
 			if tag.RowsAffected() == 0 {
 				writeError(w, http.StatusNotFound, "savings goal not found: "+a.SavingsGoalID)
+				return
+			}
+
+			// Record the allocation against this budget period
+			_, err = tx.Exec(r.Context(), `
+				INSERT INTO savings_goal_allocations (user_id, budget_period_id, savings_goal_id, amount)
+				VALUES ($1, $2, $3, $4)
+			`, userID, body.BudgetPeriodID, a.SavingsGoalID, a.Amount)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to record allocation")
 				return
 			}
 		}
@@ -250,5 +283,48 @@ func FillSavingsGoals(pool *pgxpool.Pool) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"savings_goals": goals})
+	}
+}
+
+type savingsGoalAllocation struct {
+	ID            string  `json:"id"`
+	SavingsGoalID string  `json:"savings_goal_id"`
+	GoalName      string  `json:"goal_name"`
+	GoalEmoji     *string `json:"goal_emoji"`
+	Amount        float64 `json:"amount"`
+	CreatedAt     string  `json:"created_at"`
+}
+
+func ListPeriodAllocations(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID := auth.UserID(r.Context())
+		periodID := chi.URLParam(r, "id")
+
+		rows, err := pool.Query(r.Context(), `
+			SELECT sga.id::text, sga.savings_goal_id::text, sg.name, sg.emoji,
+			       sga.amount, sga.created_at::text
+			FROM savings_goal_allocations sga
+			JOIN savings_goals sg ON sg.id = sga.savings_goal_id
+			WHERE sga.user_id = $1 AND sga.budget_period_id = $2
+			ORDER BY sga.created_at
+		`, userID, periodID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to query allocations")
+			return
+		}
+		defer rows.Close()
+
+		allocations := []savingsGoalAllocation{}
+		for rows.Next() {
+			var a savingsGoalAllocation
+			if err := rows.Scan(&a.ID, &a.SavingsGoalID, &a.GoalName, &a.GoalEmoji, &a.Amount, &a.CreatedAt); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to scan allocation")
+				return
+			}
+			allocations = append(allocations, a)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"allocations": allocations})
 	}
 }

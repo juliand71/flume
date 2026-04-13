@@ -43,7 +43,53 @@ type budgetPeriodWithActuals struct {
 	ActualFixed    float64 `json:"actual_fixed"`
 	ActualFlex     float64 `json:"actual_flex"`
 	ActualSavings  float64 `json:"actual_savings"`
+	TotalFilled    float64 `json:"total_filled"`
 	Surplus        float64 `json:"surplus"`
+}
+
+// periodWithActuals computes actuals and total filled for a budget period.
+func periodWithActuals(ctx context.Context, pool *pgxpool.Pool, p *budgetPeriod) (*budgetPeriodWithActuals, error) {
+	var actualIncome, actualFixed, actualFlex, actualSavings float64
+	err := pool.QueryRow(ctx, `
+		SELECT
+			coalesce(sum(amount) FILTER (WHERE budget_category = 'income'), 0),
+			coalesce(sum(amount) FILTER (WHERE budget_category = 'fixed'), 0),
+			coalesce(sum(amount) FILTER (WHERE budget_category = 'flex'), 0),
+			coalesce(sum(amount) FILTER (WHERE budget_category = 'savings'), 0)
+		FROM transactions_with_category
+		WHERE user_id = $1 AND date >= $2::date AND date < $3::date
+	`, p.UserID, p.StartDate, p.EndDate).Scan(
+		&actualIncome, &actualFixed, &actualFlex, &actualSavings,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var totalFilled float64
+	pool.QueryRow(ctx, `
+		SELECT coalesce(sum(amount), 0)
+		FROM savings_goal_allocations
+		WHERE user_id = $1 AND budget_period_id = $2::uuid
+	`, p.UserID, p.ID).Scan(&totalFilled)
+
+	return &budgetPeriodWithActuals{
+		ID:             p.ID,
+		UserID:         p.UserID,
+		StartDate:      p.StartDate,
+		EndDate:        p.EndDate,
+		IncomeTarget:   p.IncomeTarget,
+		FixedTarget:    p.FixedTarget,
+		FlexTarget:     p.FlexTarget,
+		SavingsTarget:  p.SavingsTarget,
+		IncomeStreamID: p.IncomeStreamID,
+		CreatedAt:      p.CreatedAt,
+		ActualIncome:   actualIncome,
+		ActualFixed:    actualFixed,
+		ActualFlex:     actualFlex,
+		ActualSavings:  actualSavings,
+		TotalFilled:    totalFilled,
+		Surplus:        -actualIncome - actualFixed - actualFlex - totalFilled,
+	}, nil
 }
 
 // currentPeriodForUser returns the budget period covering today for the given user.
@@ -90,39 +136,10 @@ func GetPeriodByID(pool *pgxpool.Pool) http.HandlerFunc {
 			return
 		}
 
-		var actualIncome, actualFixed, actualFlex, actualSavings float64
-		err = pool.QueryRow(r.Context(), `
-			SELECT
-				coalesce(sum(amount) FILTER (WHERE budget_category = 'income'), 0),
-				coalesce(sum(amount) FILTER (WHERE budget_category = 'fixed'), 0),
-				coalesce(sum(amount) FILTER (WHERE budget_category = 'flex'), 0),
-				coalesce(sum(amount) FILTER (WHERE budget_category = 'savings'), 0)
-			FROM transactions_with_category
-			WHERE user_id = $1 AND date >= $2::date AND date < $3::date
-		`, userID, p.StartDate, p.EndDate).Scan(
-			&actualIncome, &actualFixed, &actualFlex, &actualSavings,
-		)
+		result, err := periodWithActuals(r.Context(), pool, &p)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to compute actuals")
 			return
-		}
-
-		result := budgetPeriodWithActuals{
-			ID:             p.ID,
-			UserID:         p.UserID,
-			StartDate:      p.StartDate,
-			EndDate:        p.EndDate,
-			IncomeTarget:   p.IncomeTarget,
-			FixedTarget:    p.FixedTarget,
-			FlexTarget:     p.FlexTarget,
-			SavingsTarget:  p.SavingsTarget,
-			IncomeStreamID: p.IncomeStreamID,
-			CreatedAt:      p.CreatedAt,
-			ActualIncome:   actualIncome,
-			ActualFixed:    actualFixed,
-			ActualFlex:     actualFlex,
-			ActualSavings:  actualSavings,
-			Surplus:        -actualIncome - actualFixed - actualFlex,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -140,40 +157,10 @@ func GetCurrentPeriod(pool *pgxpool.Pool) http.HandlerFunc {
 			return
 		}
 
-		// Compute actuals from transactions_with_category
-		var actualIncome, actualFixed, actualFlex, actualSavings float64
-		err = pool.QueryRow(r.Context(), `
-			SELECT
-				coalesce(sum(amount) FILTER (WHERE budget_category = 'income'), 0),
-				coalesce(sum(amount) FILTER (WHERE budget_category = 'fixed'), 0),
-				coalesce(sum(amount) FILTER (WHERE budget_category = 'flex'), 0),
-				coalesce(sum(amount) FILTER (WHERE budget_category = 'savings'), 0)
-			FROM transactions_with_category
-			WHERE user_id = $1 AND date >= $2::date AND date < $3::date
-		`, userID, p.StartDate, p.EndDate).Scan(
-			&actualIncome, &actualFixed, &actualFlex, &actualSavings,
-		)
+		result, err := periodWithActuals(r.Context(), pool, p)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to compute actuals")
 			return
-		}
-
-		result := budgetPeriodWithActuals{
-			ID:             p.ID,
-			UserID:         p.UserID,
-			StartDate:      p.StartDate,
-			EndDate:        p.EndDate,
-			IncomeTarget:   p.IncomeTarget,
-			FixedTarget:    p.FixedTarget,
-			FlexTarget:     p.FlexTarget,
-			SavingsTarget:  p.SavingsTarget,
-			IncomeStreamID: p.IncomeStreamID,
-			CreatedAt:      p.CreatedAt,
-			ActualIncome:   actualIncome,
-			ActualFixed:    actualFixed,
-			ActualFlex:     actualFlex,
-			ActualSavings:  actualSavings,
-			Surplus:        -actualIncome - actualFixed - actualFlex,
 		}
 
 		w.Header().Set("Content-Type", "application/json")

@@ -78,11 +78,11 @@ final class SavingsGoalViewModel {
         }
     }
 
-    func fillGoals(allocations: [(savingsGoalId: String, amount: Decimal)]) async -> Bool {
+    func fillGoals(allocations: [(savingsGoalId: String, amount: Decimal)], budgetPeriodId: String) async -> Bool {
         do {
             let accessToken = try await client.auth.session.accessToken
             goals = try await BudgetAPIService.shared.fillSavingsGoals(
-                allocations: allocations, accessToken: accessToken
+                allocations: allocations, budgetPeriodId: budgetPeriodId, accessToken: accessToken
             )
             return true
         } catch {

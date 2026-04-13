@@ -5,6 +5,16 @@ struct BudgetPeriodView: View {
     @State private var showingFillSheet = false
     @State private var showingSuggestionSheet = false
     @State private var fillViewModel = SavingsGoalViewModel()
+    @State private var allocations: [SavingsGoalAllocation] = []
+
+    private var isCurrentPeriod: Bool {
+        guard let period = viewModel.selectedPeriod else { return false }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let today = formatter.string(from: Date())
+        return period.startDate <= today && period.endDate > today
+    }
 
     var body: some View {
         Group {
@@ -94,11 +104,28 @@ struct BudgetPeriodView: View {
                         }
                         .padding(.vertical, 4)
 
-                        if (period.surplus ?? 0) > 0 {
+                        if isCurrentPeriod, (period.surplus ?? 0) > 0 {
                             Button {
                                 showingFillSheet = true
                             } label: {
                                 Label("Fund Goals", systemImage: "arrow.down.to.line")
+                            }
+                        }
+                    }
+
+                    if !allocations.isEmpty {
+                        Section(isCurrentPeriod ? "Funded This Period" : "Funded Goals") {
+                            ForEach(allocations) { allocation in
+                                HStack {
+                                    if let emoji = allocation.goalEmoji {
+                                        Text(emoji)
+                                    }
+                                    Text(allocation.goalName)
+                                        .font(.subheadline.weight(.medium))
+                                    Spacer()
+                                    Text(allocation.amount, format: .currency(code: "USD"))
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
                     }
@@ -113,10 +140,18 @@ struct BudgetPeriodView: View {
                 )
             }
         }
-        .sheet(isPresented: $showingFillSheet) {
-            if let period = viewModel.selectedPeriod {
-                SavingsGoalFillView(viewModel: fillViewModel, surplus: period.surplus ?? 0)
+        .sheet(isPresented: $showingFillSheet, onDismiss: {
+            Task {
+                await viewModel.refresh()
+                await fetchAllocations()
             }
+        }) {
+            if let period = viewModel.selectedPeriod {
+                SavingsGoalFillView(viewModel: fillViewModel, surplus: period.surplus ?? 0, budgetPeriodId: period.id.uuidString)
+            }
+        }
+        .onChange(of: viewModel.selectedPeriod?.id) {
+            Task { await fetchAllocations() }
         }
         .sheet(isPresented: $showingSuggestionSheet) {
             BudgetUpdateSuggestionView(viewModel: viewModel)
@@ -134,6 +169,21 @@ struct BudgetPeriodView: View {
                     showingSuggestionSheet = true
                 }
             }
+        }
+    }
+
+    private func fetchAllocations() async {
+        guard let period = viewModel.selectedPeriod else {
+            allocations = []
+            return
+        }
+        do {
+            let accessToken = try await SupabaseService.shared.auth.session.accessToken
+            allocations = try await BudgetAPIService.shared.fetchAllocations(
+                periodId: period.id.uuidString, accessToken: accessToken
+            )
+        } catch {
+            allocations = []
         }
     }
 }

@@ -8,25 +8,24 @@ struct DebugSettingsView: View {
         NavigationStack {
             Form {
                 Section("Active Debug User") {
-                    Button(action: { store.activeUserID = DebugUserStore.onboardedID }) {
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text("Onboarded (default)").bold()
-                                Text("Full data, onboarding complete").font(.caption).foregroundStyle(.secondary)
+                    ForEach(DebugUserStore.users) { user in
+                        Button(action: { store.activeUserID = user.id }) {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(user.label).bold()
+                                    Text(user.subtitle).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if store.activeUserID == user.id {
+                                    Image(systemName: "checkmark")
+                                }
                             }
-                            Spacer()
-                            if !store.isFreshUser { Image(systemName: "checkmark") }
                         }
                     }
-                    Button(action: { store.activeUserID = DebugUserStore.freshID }) {
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text("Fresh (no data)").bold()
-                                Text("No bank linked, starts at onboarding").font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            if store.isFreshUser { Image(systemName: "checkmark") }
-                        }
+                }
+                Section("Debug Tools") {
+                    NavigationLink("Create Test Transaction") {
+                        DebugTransactionView()
                     }
                 }
                 Section {

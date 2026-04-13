@@ -3,6 +3,7 @@ import SwiftUI
 struct SavingsGoalFillView: View {
     @Bindable var viewModel: SavingsGoalViewModel
     let surplus: Decimal
+    let budgetPeriodId: String
     @Environment(\.dismiss) private var dismiss
 
     @State private var amounts: [UUID: String] = [:]
@@ -67,7 +68,7 @@ struct SavingsGoalFillView: View {
                 Section {
                     Button("Confirm Fill") {
                         Task {
-                            let success = await viewModel.fillGoals(allocations: allocations)
+                            let success = await viewModel.fillGoals(allocations: allocations, budgetPeriodId: budgetPeriodId)
                             if success {
                                 dismiss()
                             }
