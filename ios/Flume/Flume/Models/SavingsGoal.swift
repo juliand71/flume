@@ -6,6 +6,8 @@ struct SavingsGoal: Codable, Identifiable, Sendable {
     let name: String
     let targetAmount: Decimal
     let currentAmount: Decimal
+    let spent: Decimal?
+    let balance: Decimal?
     let emoji: String?
     let isEmergencyFund: Bool
     let priority: Int

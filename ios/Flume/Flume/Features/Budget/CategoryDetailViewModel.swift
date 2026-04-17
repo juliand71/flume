@@ -33,12 +33,13 @@ final class CategoryDetailViewModel {
         isLoading = false
     }
 
-    func overrideCategory(transactionId: String, newCategory: String) async {
+    func overrideCategory(transactionId: String, newCategory: String, savingsGoalId: String? = nil) async {
         do {
             let accessToken = try await client.auth.session.accessToken
             _ = try await BudgetAPIService.shared.overrideTransactionCategory(
                 id: transactionId,
                 budgetCategory: newCategory,
+                savingsGoalId: savingsGoalId,
                 accessToken: accessToken
             )
             await fetchTransactions()

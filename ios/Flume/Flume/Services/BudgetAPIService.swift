@@ -123,11 +123,12 @@ struct BudgetAPIService: Sendable {
         return response.transactions
     }
 
-    func overrideTransactionCategory(id: String, budgetCategory: String, accessToken: String) async throws -> BudgetTransaction {
+    func overrideTransactionCategory(id: String, budgetCategory: String, savingsGoalId: String? = nil, accessToken: String) async throws -> BudgetTransaction {
         struct Body: Encodable {
             let budget_category: String
+            let savings_goal_id: String?
         }
-        return try await post(path: "/budget/transactions/\(id)/override", body: Body(budget_category: budgetCategory), accessToken: accessToken)
+        return try await post(path: "/budget/transactions/\(id)/override", body: Body(budget_category: budgetCategory, savings_goal_id: savingsGoalId), accessToken: accessToken)
     }
 
     // MARK: - Category Mappings
@@ -200,6 +201,23 @@ struct BudgetAPIService: Sendable {
         let body = Body(budget_period_id: budgetPeriodId, allocations: allocations.map { Allocation(savings_goal_id: $0.savingsGoalId, amount: $0.amount) })
         let response: Response = try await post(path: "/budget/savings-goals/fill", body: body, accessToken: accessToken)
         return response.savingsGoals
+    }
+
+    func withdrawFromSavingsGoals(withdrawals: [(savingsGoalId: String, amount: Decimal)], budgetPeriodId: String, accessToken: String) async throws {
+        struct Withdrawal: Encodable {
+            let savings_goal_id: String
+            let amount: Decimal
+        }
+        struct Body: Encodable {
+            let budget_period_id: String
+            let withdrawals: [Withdrawal]
+        }
+        struct Response: Decodable { let success: Bool }
+        let body = Body(
+            budget_period_id: budgetPeriodId,
+            withdrawals: withdrawals.map { Withdrawal(savings_goal_id: $0.savingsGoalId, amount: $0.amount) }
+        )
+        let _: Response = try await post(path: "/budget/savings-goals/withdraw", body: body, accessToken: accessToken)
     }
 
     func fetchAllocations(periodId: String, accessToken: String) async throws -> [SavingsGoalAllocation] {

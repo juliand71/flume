@@ -18,4 +18,5 @@ struct BudgetPeriod: Codable, Identifiable, Sendable {
     let actualSavings: Decimal?
     let totalFilled: Decimal?
     let surplus: Decimal?
+    let carryoverAmount: Decimal?
 }

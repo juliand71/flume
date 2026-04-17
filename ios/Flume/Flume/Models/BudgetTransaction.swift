@@ -10,4 +10,5 @@ struct BudgetTransaction: Codable, Identifiable, Sendable {
     let pending: Bool
     let budgetCategory: String
     let categoryOverride: String?
+    let savingsGoalId: UUID?
 }

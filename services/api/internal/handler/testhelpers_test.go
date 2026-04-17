@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -41,9 +42,11 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("failed to ping database: %v", err)
 	}
 
-	t.Cleanup(func() {
+	// Clean up before and after test to handle seed data conflicts
+	cleanDB := func() {
 		ctx := context.Background()
 		tables := []string{
+			"savings_goal_allocations",
 			"savings_goals",
 			"account_roles",
 			"budget_periods",
@@ -58,6 +61,11 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 			_, _ = pool.Exec(ctx, fmt.Sprintf("DELETE FROM %s", table))
 		}
 		_, _ = pool.Exec(ctx, "DELETE FROM auth.users")
+	}
+
+	cleanDB()
+	t.Cleanup(func() {
+		cleanDB()
 		pool.Close()
 	})
 
@@ -68,12 +76,15 @@ func seedUser(t *testing.T, pool *pgxpool.Pool, userID string) {
 	t.Helper()
 	ctx := context.Background()
 
-	_, err := pool.Exec(ctx, `INSERT INTO auth.users (id) VALUES ($1)`, userID)
+	_, err := pool.Exec(ctx, `INSERT INTO auth.users (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, userID)
 	if err != nil {
 		t.Fatalf("failed to seed auth.users: %v", err)
 	}
 
-	_, err = pool.Exec(ctx, `INSERT INTO profiles (id, onboarding_step) VALUES ($1, 'welcome')`, userID)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO profiles (id, onboarding_step) VALUES ($1, 'welcome')
+		ON CONFLICT (id) DO UPDATE SET onboarding_step = 'welcome'
+	`, userID)
 	if err != nil {
 		t.Fatalf("failed to seed profiles: %v", err)
 	}
@@ -87,7 +98,7 @@ func seedAccount(t *testing.T, pool *pgxpool.Pool, userID string) string {
 	// Use user-specific plaid_item_id to allow multiple users
 	_, err := pool.Exec(ctx, `
 		INSERT INTO plaid_items (id, user_id, plaid_item_id, access_token, institution_name)
-		VALUES ($1, $2, 'plaid-item-' || $2, 'access-token-test', 'Test Bank')
+		VALUES ($1, $2::uuid, 'plaid-item-' || $2::text, 'access-token-test', 'Test Bank')
 		ON CONFLICT (id) DO NOTHING
 	`, plaidItemID, userID)
 	if err != nil {
@@ -97,7 +108,7 @@ func seedAccount(t *testing.T, pool *pgxpool.Pool, userID string) string {
 	var accountID string
 	err = pool.QueryRow(ctx, `
 		INSERT INTO accounts (plaid_item_id, user_id, plaid_account_id, name, type, subtype, iso_currency_code)
-		VALUES ($1, $2, 'plaid-acct-' || $2, 'Test Checking', 'depository', 'checking', 'USD')
+		VALUES ($1, $2::uuid, 'plaid-acct-' || $2::text, 'Test Checking', 'depository', 'checking', 'USD')
 		RETURNING id::text
 	`, plaidItemID, userID).Scan(&accountID)
 	if err != nil {
@@ -121,7 +132,7 @@ func seedTransactions(t *testing.T, pool *pgxpool.Pool, userID, accountID string
 		_, err := pool.Exec(ctx, `
 			INSERT INTO transactions (account_id, user_id, plaid_transaction_id, name, amount, date, personal_finance_category)
 			VALUES ($1, $2, $3, $4, $5, $6::date, $7::jsonb)
-		`, accountID, userID, fmt.Sprintf("plaid-txn-%s-%d", accountID[:8], i), txn.Name, txn.Amount, txn.Date, categoryJSON)
+		`, accountID, userID, fmt.Sprintf("plaid-txn-%s-%d-%d", accountID[:8], i, rand.Int()), txn.Name, txn.Amount, txn.Date, categoryJSON)
 		if err != nil {
 			t.Fatalf("failed to seed transaction %d: %v", i, err)
 		}
@@ -226,4 +237,44 @@ func execHandler(t *testing.T, handler http.HandlerFunc, req *http.Request) *htt
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	return rr
+}
+
+func seedAllocation(t *testing.T, pool *pgxpool.Pool, userID, periodID, goalID string, amount float64) {
+	t.Helper()
+	ctx := context.Background()
+
+	// Update goal's current_amount
+	_, err := pool.Exec(ctx, `
+		UPDATE savings_goals SET current_amount = current_amount + $2
+		WHERE id = $1
+	`, goalID, amount)
+	if err != nil {
+		t.Fatalf("failed to update savings goal amount: %v", err)
+	}
+
+	// Insert allocation record
+	_, err = pool.Exec(ctx, `
+		INSERT INTO savings_goal_allocations (user_id, budget_period_id, savings_goal_id, amount, type)
+		VALUES ($1, $2, $3, $4, 'fill')
+	`, userID, periodID, goalID, amount)
+	if err != nil {
+		t.Fatalf("failed to seed allocation: %v", err)
+	}
+}
+
+func strPtr(s string) *string {
+	return &s
+}
+
+func getPeriodID(t *testing.T, pool *pgxpool.Pool, userID, startDate string) string {
+	t.Helper()
+	var id string
+	err := pool.QueryRow(context.Background(), `
+		SELECT id::text FROM budget_periods
+		WHERE user_id = $1 AND start_date = $2::date
+	`, userID, startDate).Scan(&id)
+	if err != nil {
+		t.Fatalf("failed to get period ID: %v", err)
+	}
+	return id
 }

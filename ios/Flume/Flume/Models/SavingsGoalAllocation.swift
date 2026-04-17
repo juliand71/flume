@@ -6,5 +6,6 @@ struct SavingsGoalAllocation: Codable, Identifiable, Sendable {
     let goalName: String
     let goalEmoji: String?
     let amount: Decimal
+    let type: String?
     let createdAt: String
 }

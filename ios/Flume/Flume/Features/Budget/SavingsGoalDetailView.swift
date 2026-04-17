@@ -11,9 +11,13 @@ struct SavingsGoalDetailView: View {
     @State private var isEmergencyFund: Bool = false
     @State private var showingDeleteConfirmation = false
 
+    private var effectiveAmount: Decimal {
+        goal.balance ?? goal.currentAmount
+    }
+
     private var progress: Double {
         guard goal.targetAmount > 0 else { return 0 }
-        return Double(truncating: goal.currentAmount / goal.targetAmount as NSDecimalNumber)
+        return Double(truncating: effectiveAmount / goal.targetAmount as NSDecimalNumber)
     }
 
     var body: some View {
@@ -21,7 +25,7 @@ struct SavingsGoalDetailView: View {
             Section {
                 VStack(spacing: 8) {
                     HStack {
-                        Text(goal.currentAmount, format: .currency(code: "USD"))
+                        Text(effectiveAmount, format: .currency(code: "USD"))
                             .font(.title.weight(.semibold))
                         Text("of")
                             .foregroundStyle(.secondary)
@@ -36,14 +40,26 @@ struct SavingsGoalDetailView: View {
                                 .fill(Color.green.opacity(0.15))
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(Color.green)
-                                .frame(width: max(0, geometry.size.width * min(progress, 1.0)))
+                                .frame(width: max(0, geometry.size.width * min(max(progress, 0), 1.0)))
                         }
                     }
                     .frame(height: 16)
 
-                    Text("\(Int(progress * 100))% complete")
+                    Text("\(Int(max(progress, 0) * 100))% complete")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    if let spent = goal.spent, spent > 0 {
+                        HStack {
+                            Text("Spent")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(spent, format: .currency(code: "USD"))
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 .padding(.vertical, 4)
             }

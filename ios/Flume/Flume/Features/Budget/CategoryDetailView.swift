@@ -1,4 +1,5 @@
 import SwiftUI
+import Supabase
 
 struct CategoryDetailView: View {
     @State var viewModel: CategoryDetailViewModel
@@ -6,6 +7,8 @@ struct CategoryDetailView: View {
     let tint: Color
 
     @State private var selectedTransaction: BudgetTransaction?
+    @State private var pendingSavingsTransaction: BudgetTransaction?
+    @State private var savingsGoals: [SavingsGoal] = []
 
     private var groupedTransactions: [(String, [BudgetTransaction])] {
         let grouped = Dictionary(grouping: viewModel.transactions) { $0.date }
@@ -56,11 +59,15 @@ struct CategoryDetailView: View {
             ForEach(["income", "fixed", "flex", "savings", "transfer", "ignore"], id: \.self) { category in
                 Button(category.capitalized) {
                     if let tx = selectedTransaction {
-                        Task {
-                            await viewModel.overrideCategory(
-                                transactionId: tx.id.uuidString,
-                                newCategory: category
-                            )
+                        if category == "savings" {
+                            pendingSavingsTransaction = tx
+                        } else {
+                            Task {
+                                await viewModel.overrideCategory(
+                                    transactionId: tx.id.uuidString,
+                                    newCategory: category
+                                )
+                            }
                         }
                     }
                     selectedTransaction = nil
@@ -73,6 +80,64 @@ struct CategoryDetailView: View {
             if let tx = selectedTransaction {
                 Text("Recategorize \"\(tx.name)\"")
             }
+        }
+        .sheet(isPresented: Binding(
+            get: { pendingSavingsTransaction != nil },
+            set: { if !$0 { pendingSavingsTransaction = nil } }
+        )) {
+            NavigationStack {
+                List {
+                    if savingsGoals.isEmpty {
+                        Text("No savings goals available")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(savingsGoals.filter { !$0.archived }) { goal in
+                            Button {
+                                if let tx = pendingSavingsTransaction {
+                                    Task {
+                                        await viewModel.overrideCategory(
+                                            transactionId: tx.id.uuidString,
+                                            newCategory: "savings",
+                                            savingsGoalId: goal.id.uuidString
+                                        )
+                                    }
+                                }
+                                pendingSavingsTransaction = nil
+                            } label: {
+                                HStack {
+                                    if let emoji = goal.emoji {
+                                        Text(emoji)
+                                    }
+                                    VStack(alignment: .leading) {
+                                        Text(goal.name)
+                                            .font(.subheadline.weight(.medium))
+                                        Text("\(goal.balance ?? goal.currentAmount, format: .currency(code: "USD")) available")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .navigationTitle("Link to Goal")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { pendingSavingsTransaction = nil }
+                    }
+                }
+                .task {
+                    do {
+                        let accessToken = try await SupabaseService.shared.auth.session.accessToken
+                        savingsGoals = try await BudgetAPIService.shared.fetchSavingsGoals(accessToken: accessToken)
+                    } catch {}
+                }
+            }
+            .presentationDetents([.medium])
         }
     }
 }
@@ -89,6 +154,11 @@ private struct CategoryTransactionRow: View {
                     Text("Recategorized")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                }
+                if transaction.savingsGoalId != nil {
+                    Text("Linked to goal")
+                        .font(.caption2)
+                        .foregroundStyle(.green)
                 }
             }
 

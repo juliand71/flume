@@ -3,6 +3,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,6 +11,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 )
+
+func withRouteContext(ctx context.Context, rctx *chi.Context) context.Context {
+	return context.WithValue(ctx, chi.RouteCtxKey, rctx)
+}
 
 const testUserID = "00000000-0000-0000-0000-000000000001"
 
@@ -117,7 +122,7 @@ func TestIntegration_UpdateAccountRole(t *testing.T) {
 
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", accountID)
-	req = req.WithContext(chi.WithRouteContext(req.Context(), rctx))
+	req = req.WithContext(withRouteContext(req.Context(), rctx))
 
 	rr := execHandler(t, UpdateAccountRole(pool), req)
 	if rr.Code != http.StatusOK {
@@ -160,7 +165,7 @@ func TestIntegration_IncomeStreams_CRUD(t *testing.T) {
 	req = makeAuthRequest("PATCH", "/budget/income-streams/"+created.ID, updateBody, testUserID)
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", created.ID)
-	req = req.WithContext(chi.WithRouteContext(req.Context(), rctx))
+	req = req.WithContext(withRouteContext(req.Context(), rctx))
 	rr = execHandler(t, UpdateIncomeStream(pool), req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update: expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -170,7 +175,7 @@ func TestIntegration_IncomeStreams_CRUD(t *testing.T) {
 	req = makeAuthRequest("DELETE", "/budget/income-streams/"+created.ID, nil, testUserID)
 	rctx = chi.NewRouteContext()
 	rctx.URLParams.Add("id", created.ID)
-	req = req.WithContext(chi.WithRouteContext(req.Context(), rctx))
+	req = req.WithContext(withRouteContext(req.Context(), rctx))
 	rr = execHandler(t, DeleteIncomeStream(pool), req)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("delete: expected 204, got %d: %s", rr.Code, rr.Body.String())
@@ -246,7 +251,7 @@ func TestIntegration_BudgetPeriods_CRUD(t *testing.T) {
 	req = makeAuthRequest("PATCH", "/budget/periods/"+created.ID, updateBody, testUserID)
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", created.ID)
-	req = req.WithContext(chi.WithRouteContext(req.Context(), rctx))
+	req = req.WithContext(withRouteContext(req.Context(), rctx))
 	rr = execHandler(t, UpdatePeriod(pool), req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update: expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -487,7 +492,7 @@ func TestIntegration_Transactions(t *testing.T) {
 	req = makeAuthRequest("POST", "/budget/transactions/"+txID+"/override", overrideBody, testUserID)
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", txID)
-	req = req.WithContext(chi.WithRouteContext(req.Context(), rctx))
+	req = req.WithContext(withRouteContext(req.Context(), rctx))
 	rr = execHandler(t, OverrideTransactionCategory(pool), req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("override: expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -511,7 +516,7 @@ func TestIntegration_OverrideTransaction_InvalidCategory(t *testing.T) {
 	req = makeAuthRequest("POST", "/budget/transactions/00000000-0000-0000-0000-000000000099/override", overrideBody, testUserID)
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", "00000000-0000-0000-0000-000000000099")
-	req = req.WithContext(chi.WithRouteContext(req.Context(), rctx))
+	req = req.WithContext(withRouteContext(req.Context(), rctx))
 	rr := execHandler(t, OverrideTransactionCategory(pool), req)
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for invalid category, got %d", rr.Code)
@@ -614,7 +619,7 @@ func TestIntegration_SavingsGoals_CRUD(t *testing.T) {
 	req = makeAuthRequest("PATCH", "/budget/savings-goals/"+created.ID, updateBody, testUserID)
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", created.ID)
-	req = req.WithContext(chi.WithRouteContext(req.Context(), rctx))
+	req = req.WithContext(withRouteContext(req.Context(), rctx))
 	rr = execHandler(t, UpdateSavingsGoal(pool), req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update: expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -624,7 +629,7 @@ func TestIntegration_SavingsGoals_CRUD(t *testing.T) {
 	req = makeAuthRequest("DELETE", "/budget/savings-goals/"+created.ID, nil, testUserID)
 	rctx = chi.NewRouteContext()
 	rctx.URLParams.Add("id", created.ID)
-	req = req.WithContext(chi.WithRouteContext(req.Context(), rctx))
+	req = req.WithContext(withRouteContext(req.Context(), rctx))
 	rr = execHandler(t, DeleteSavingsGoal(pool), req)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("delete: expected 204, got %d: %s", rr.Code, rr.Body.String())
@@ -808,5 +813,524 @@ func TestIntegration_EndToEndOnboarding(t *testing.T) {
 	}
 	if !finalStatus.HasSavingsGoal {
 		t.Error("expected has_savings_goal=true")
+	}
+}
+
+// --- Savings Transaction → Goal Linking ---
+
+func TestIntegration_SavingsTransactionDeductsFromGoal(t *testing.T) {
+	pool := setupTestDB(t)
+	seedUser(t, pool, testUserID)
+	accountID := seedAccount(t, pool, testUserID)
+	periodID := seedBudgetPeriod(t, pool, testUserID, "2026-04-01", "2026-05-01", 5000)
+	goalID := seedSavingsGoal(t, pool, testUserID, "Vacation Fund", 2000, false)
+	seedCategoryMappings(t, pool)
+
+	// Fill the goal with some money
+	fillBody := map[string]any{
+		"budget_period_id": periodID,
+		"allocations":      []map[string]any{{"savings_goal_id": goalID, "amount": 500.0}},
+	}
+	req := makeAuthRequest("POST", "/budget/savings-goals/fill", fillBody, testUserID)
+	rr := execHandler(t, FillSavingsGoals(pool), req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("fill: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Seed a transaction and override it to savings with goal
+	food := "FOOD_AND_DRINK"
+	txns := []testTxn{{Name: "TRAVEL EXPENSE", Amount: 200.00, Date: "2026-04-10", Category: &food}}
+	seedTransactions(t, pool, testUserID, accountID, txns)
+
+	// Get the transaction ID
+	req = makeAuthRequest("GET", fmt.Sprintf("/budget/transactions?period_id=%s", periodID), nil, testUserID)
+	rr = execHandler(t, ListTransactions(pool), req)
+	var listResp struct {
+		Transactions []struct {
+			ID string `json:"id"`
+		} `json:"transactions"`
+	}
+	json.NewDecoder(rr.Body).Decode(&listResp)
+	txID := listResp.Transactions[0].ID
+
+	// Override to savings with goal
+	overrideBody := map[string]any{"budget_category": "savings", "savings_goal_id": goalID}
+	req = makeAuthRequest("POST", "/budget/transactions/"+txID+"/override", overrideBody, testUserID)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", txID)
+	req = req.WithContext(withRouteContext(req.Context(), rctx))
+	rr = execHandler(t, OverrideTransactionCategory(pool), req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("override to savings: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify goal has spent and balance
+	req = makeAuthRequest("GET", "/budget/savings-goals", nil, testUserID)
+	rr = execHandler(t, ListSavingsGoals(pool), req)
+	var goalsResp struct {
+		SavingsGoals []struct {
+			Spent   float64 `json:"spent"`
+			Balance float64 `json:"balance"`
+		} `json:"savings_goals"`
+	}
+	json.NewDecoder(rr.Body).Decode(&goalsResp)
+	if len(goalsResp.SavingsGoals) == 0 {
+		t.Fatal("expected at least one goal")
+	}
+	goal := goalsResp.SavingsGoals[0]
+	if goal.Spent != 200 {
+		t.Errorf("expected spent=200, got %v", goal.Spent)
+	}
+	if goal.Balance != 300 {
+		t.Errorf("expected balance=300 (500 filled - 200 spent), got %v", goal.Balance)
+	}
+}
+
+func TestIntegration_RecategorizeClearsGoalLink(t *testing.T) {
+	pool := setupTestDB(t)
+	seedUser(t, pool, testUserID)
+	accountID := seedAccount(t, pool, testUserID)
+	periodID := seedBudgetPeriod(t, pool, testUserID, "2026-04-01", "2026-05-01", 5000)
+	goalID := seedSavingsGoal(t, pool, testUserID, "Vacation Fund", 2000, false)
+	seedCategoryMappings(t, pool)
+
+	// Fill goal
+	fillBody := map[string]any{
+		"budget_period_id": periodID,
+		"allocations":      []map[string]any{{"savings_goal_id": goalID, "amount": 500.0}},
+	}
+	req := makeAuthRequest("POST", "/budget/savings-goals/fill", fillBody, testUserID)
+	execHandler(t, FillSavingsGoals(pool), req)
+
+	// Seed and override to savings
+	food := "FOOD_AND_DRINK"
+	txns := []testTxn{{Name: "TRAVEL EXPENSE", Amount: 200.00, Date: "2026-04-10", Category: &food}}
+	seedTransactions(t, pool, testUserID, accountID, txns)
+
+	req = makeAuthRequest("GET", fmt.Sprintf("/budget/transactions?period_id=%s", periodID), nil, testUserID)
+	rr := execHandler(t, ListTransactions(pool), req)
+	var listResp struct {
+		Transactions []struct{ ID string } `json:"transactions"`
+	}
+	json.NewDecoder(rr.Body).Decode(&listResp)
+	txID := listResp.Transactions[0].ID
+
+	// Override to savings
+	overrideBody := map[string]any{"budget_category": "savings", "savings_goal_id": goalID}
+	req = makeAuthRequest("POST", "/budget/transactions/"+txID+"/override", overrideBody, testUserID)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", txID)
+	req = req.WithContext(withRouteContext(req.Context(), rctx))
+	execHandler(t, OverrideTransactionCategory(pool), req)
+
+	// Override back to flex — savings_goal_id should be cleared
+	overrideBody = map[string]any{"budget_category": "flex"}
+	req = makeAuthRequest("POST", "/budget/transactions/"+txID+"/override", overrideBody, testUserID)
+	rctx = chi.NewRouteContext()
+	rctx.URLParams.Add("id", txID)
+	req = req.WithContext(withRouteContext(req.Context(), rctx))
+	rr = execHandler(t, OverrideTransactionCategory(pool), req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("override back to flex: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify goal balance is restored
+	req = makeAuthRequest("GET", "/budget/savings-goals", nil, testUserID)
+	rr = execHandler(t, ListSavingsGoals(pool), req)
+	var goalsResp struct {
+		SavingsGoals []struct {
+			Spent   float64 `json:"spent"`
+			Balance float64 `json:"balance"`
+		} `json:"savings_goals"`
+	}
+	json.NewDecoder(rr.Body).Decode(&goalsResp)
+	goal := goalsResp.SavingsGoals[0]
+	if goal.Spent != 0 {
+		t.Errorf("expected spent=0 after recategorize, got %v", goal.Spent)
+	}
+	if goal.Balance != 500 {
+		t.Errorf("expected balance=500 after recategorize, got %v", goal.Balance)
+	}
+}
+
+func TestIntegration_GoalCanGoNegative(t *testing.T) {
+	pool := setupTestDB(t)
+	seedUser(t, pool, testUserID)
+	accountID := seedAccount(t, pool, testUserID)
+	periodID := seedBudgetPeriod(t, pool, testUserID, "2026-04-01", "2026-05-01", 5000)
+	goalID := seedSavingsGoal(t, pool, testUserID, "Small Fund", 100, false)
+	seedCategoryMappings(t, pool)
+
+	// Fill with only 50
+	fillBody := map[string]any{
+		"budget_period_id": periodID,
+		"allocations":      []map[string]any{{"savings_goal_id": goalID, "amount": 50.0}},
+	}
+	req := makeAuthRequest("POST", "/budget/savings-goals/fill", fillBody, testUserID)
+	execHandler(t, FillSavingsGoals(pool), req)
+
+	// Spend 200 from goal (more than current_amount)
+	food := "FOOD_AND_DRINK"
+	txns := []testTxn{{Name: "BIG EXPENSE", Amount: 200.00, Date: "2026-04-10", Category: &food}}
+	seedTransactions(t, pool, testUserID, accountID, txns)
+
+	req = makeAuthRequest("GET", fmt.Sprintf("/budget/transactions?period_id=%s", periodID), nil, testUserID)
+	rr := execHandler(t, ListTransactions(pool), req)
+	var listResp struct {
+		Transactions []struct{ ID string } `json:"transactions"`
+	}
+	json.NewDecoder(rr.Body).Decode(&listResp)
+	txID := listResp.Transactions[0].ID
+
+	overrideBody := map[string]any{"budget_category": "savings", "savings_goal_id": goalID}
+	req = makeAuthRequest("POST", "/budget/transactions/"+txID+"/override", overrideBody, testUserID)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", txID)
+	req = req.WithContext(withRouteContext(req.Context(), rctx))
+	rr = execHandler(t, OverrideTransactionCategory(pool), req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("override: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify balance is negative
+	req = makeAuthRequest("GET", "/budget/savings-goals", nil, testUserID)
+	rr = execHandler(t, ListSavingsGoals(pool), req)
+	var goalsResp struct {
+		SavingsGoals []struct {
+			Balance float64 `json:"balance"`
+		} `json:"savings_goals"`
+	}
+	json.NewDecoder(rr.Body).Decode(&goalsResp)
+	if goalsResp.SavingsGoals[0].Balance >= 0 {
+		t.Errorf("expected negative balance, got %v", goalsResp.SavingsGoals[0].Balance)
+	}
+}
+
+// --- Budget Period Rollover ---
+
+func TestIntegration_SurplusRollover(t *testing.T) {
+	pool := setupTestDB(t)
+	seedUser(t, pool, testUserID)
+	accountID := seedAccount(t, pool, testUserID)
+	seedCategoryMappings(t, pool)
+
+	// Period A: income -5000, expenses 3000 → surplus 2000
+	seedBudgetPeriod(t, pool, testUserID, "2026-03-01", "2026-04-01", 5000)
+	txns := []testTxn{
+		{Name: "PAYROLL", Amount: -5000, Date: "2026-03-15"},
+		{Name: "RENT", Amount: 2000, Date: "2026-03-01", Category: strPtr("RENT_AND_UTILITIES")},
+		{Name: "FOOD", Amount: 1000, Date: "2026-03-05", Category: strPtr("FOOD_AND_DRINK")},
+	}
+	seedTransactions(t, pool, testUserID, accountID, txns)
+
+	// Create Period B — carryover should be computed
+	createBody := map[string]any{
+		"start_date":     "2026-04-01",
+		"end_date":       "2026-05-01",
+		"income_target":  5000.0,
+		"fixed_target":   2500.0,
+		"flex_target":    1500.0,
+		"savings_target": 1000.0,
+	}
+	req := makeAuthRequest("POST", "/budget/periods", createBody, testUserID)
+	rr := execHandler(t, CreatePeriod(pool), req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var created struct {
+		CarryoverAmount float64 `json:"carryover_amount"`
+	}
+	json.NewDecoder(rr.Body).Decode(&created)
+	if created.CarryoverAmount != 2000 {
+		t.Errorf("expected carryover=2000, got %v", created.CarryoverAmount)
+	}
+}
+
+func TestIntegration_DeficitRollover(t *testing.T) {
+	pool := setupTestDB(t)
+	seedUser(t, pool, testUserID)
+	accountID := seedAccount(t, pool, testUserID)
+	seedCategoryMappings(t, pool)
+
+	// Period A: income -3000, expenses 5000 → deficit -2000
+	seedBudgetPeriod(t, pool, testUserID, "2026-03-01", "2026-04-01", 3000)
+	txns := []testTxn{
+		{Name: "PAYROLL", Amount: -3000, Date: "2026-03-15"},
+		{Name: "RENT", Amount: 3000, Date: "2026-03-01", Category: strPtr("RENT_AND_UTILITIES")},
+		{Name: "FOOD", Amount: 2000, Date: "2026-03-05", Category: strPtr("FOOD_AND_DRINK")},
+	}
+	seedTransactions(t, pool, testUserID, accountID, txns)
+
+	// Create Period B — carryover should be negative
+	createBody := map[string]any{
+		"start_date":     "2026-04-01",
+		"end_date":       "2026-05-01",
+		"income_target":  5000.0,
+		"fixed_target":   2500.0,
+		"flex_target":    1500.0,
+		"savings_target": 1000.0,
+	}
+	req := makeAuthRequest("POST", "/budget/periods", createBody, testUserID)
+	rr := execHandler(t, CreatePeriod(pool), req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var created struct {
+		CarryoverAmount float64 `json:"carryover_amount"`
+	}
+	json.NewDecoder(rr.Body).Decode(&created)
+	if created.CarryoverAmount != -2000 {
+		t.Errorf("expected carryover=-2000, got %v", created.CarryoverAmount)
+	}
+}
+
+func TestIntegration_ChainedRollover(t *testing.T) {
+	pool := setupTestDB(t)
+	seedUser(t, pool, testUserID)
+	accountID := seedAccount(t, pool, testUserID)
+	seedCategoryMappings(t, pool)
+
+	// Period A: income -5000, expenses 3000 → surplus 2000
+	seedBudgetPeriod(t, pool, testUserID, "2026-02-01", "2026-03-01", 5000)
+	txnsA := []testTxn{
+		{Name: "PAYROLL", Amount: -5000, Date: "2026-02-15"},
+		{Name: "RENT", Amount: 2000, Date: "2026-02-01", Category: strPtr("RENT_AND_UTILITIES")},
+		{Name: "FOOD", Amount: 1000, Date: "2026-02-05", Category: strPtr("FOOD_AND_DRINK")},
+	}
+	seedTransactions(t, pool, testUserID, accountID, txnsA)
+
+	// Period B: income -4000, expenses 4000 → surplus 0 + carryover 2000 from A
+	createB := map[string]any{
+		"start_date": "2026-03-01", "end_date": "2026-04-01",
+		"income_target": 4000.0, "fixed_target": 2000.0, "flex_target": 1500.0, "savings_target": 500.0,
+	}
+	req := makeAuthRequest("POST", "/budget/periods", createB, testUserID)
+	rr := execHandler(t, CreatePeriod(pool), req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create B: expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	txnsB := []testTxn{
+		{Name: "PAYROLL", Amount: -4000, Date: "2026-03-15"},
+		{Name: "RENT", Amount: 2500, Date: "2026-03-01", Category: strPtr("RENT_AND_UTILITIES")},
+		{Name: "FOOD", Amount: 1500, Date: "2026-03-05", Category: strPtr("FOOD_AND_DRINK")},
+	}
+	seedTransactions(t, pool, testUserID, accountID, txnsB)
+
+	// Period C: should have carryover = B's surplus (0) + B's carryover (2000) = 2000
+	createC := map[string]any{
+		"start_date": "2026-04-01", "end_date": "2026-05-01",
+		"income_target": 5000.0, "fixed_target": 2500.0, "flex_target": 1500.0, "savings_target": 1000.0,
+	}
+	req = makeAuthRequest("POST", "/budget/periods", createC, testUserID)
+	rr = execHandler(t, CreatePeriod(pool), req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create C: expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var created struct {
+		CarryoverAmount float64 `json:"carryover_amount"`
+	}
+	json.NewDecoder(rr.Body).Decode(&created)
+	if created.CarryoverAmount != 2000 {
+		t.Errorf("expected chained carryover=2000, got %v", created.CarryoverAmount)
+	}
+}
+
+func TestIntegration_RolloverWithFills(t *testing.T) {
+	pool := setupTestDB(t)
+	seedUser(t, pool, testUserID)
+	accountID := seedAccount(t, pool, testUserID)
+	seedCategoryMappings(t, pool)
+	goalID := seedSavingsGoal(t, pool, testUserID, "Emergency Fund", 10000, true)
+
+	// Period A: income -5000, expenses 2000, fill 500 → surplus 2500
+	periodA := seedBudgetPeriod(t, pool, testUserID, "2026-03-01", "2026-04-01", 5000)
+	txns := []testTxn{
+		{Name: "PAYROLL", Amount: -5000, Date: "2026-03-15"},
+		{Name: "RENT", Amount: 1000, Date: "2026-03-01", Category: strPtr("RENT_AND_UTILITIES")},
+		{Name: "FOOD", Amount: 1000, Date: "2026-03-05", Category: strPtr("FOOD_AND_DRINK")},
+	}
+	seedTransactions(t, pool, testUserID, accountID, txns)
+
+	// Fill savings goal directly (past period, can't use FillSavingsGoals endpoint)
+	seedAllocation(t, pool, testUserID, periodA, goalID, 500)
+
+	// Create Period B — carryover should be 5000 - 2000 - 500 = 2500
+	createBody := map[string]any{
+		"start_date": "2026-04-01", "end_date": "2026-05-01",
+		"income_target": 5000.0, "fixed_target": 2500.0, "flex_target": 1500.0, "savings_target": 1000.0,
+	}
+	req := makeAuthRequest("POST", "/budget/periods", createBody, testUserID)
+	rr := execHandler(t, CreatePeriod(pool), req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var created struct {
+		CarryoverAmount float64 `json:"carryover_amount"`
+	}
+	json.NewDecoder(rr.Body).Decode(&created)
+	if created.CarryoverAmount != 2500 {
+		t.Errorf("expected carryover=2500, got %v", created.CarryoverAmount)
+	}
+}
+
+// --- Withdraw from Savings ---
+
+func TestIntegration_WithdrawFromSavings(t *testing.T) {
+	pool := setupTestDB(t)
+	seedUser(t, pool, testUserID)
+	accountID := seedAccount(t, pool, testUserID)
+	seedCategoryMappings(t, pool)
+	goalID := seedSavingsGoal(t, pool, testUserID, "Emergency Fund", 10000, true)
+
+	// Create a period with a deficit carryover
+	seedBudgetPeriod(t, pool, testUserID, "2026-03-01", "2026-04-01", 3000)
+	txns := []testTxn{
+		{Name: "PAYROLL", Amount: -3000, Date: "2026-03-15"},
+		{Name: "RENT", Amount: 3000, Date: "2026-03-01", Category: strPtr("RENT_AND_UTILITIES")},
+		{Name: "FOOD", Amount: 2000, Date: "2026-03-05", Category: strPtr("FOOD_AND_DRINK")},
+	}
+	seedTransactions(t, pool, testUserID, accountID, txns)
+
+	// Fill goal directly (past period, can't use FillSavingsGoals endpoint)
+	priorPeriodID := getPeriodID(t, pool, testUserID, "2026-03-01")
+	seedAllocation(t, pool, testUserID, priorPeriodID, goalID, 1000)
+
+	// Create current period — it will have negative carryover
+	createBody := map[string]any{
+		"start_date": "2026-04-01", "end_date": "2026-05-01",
+		"income_target": 5000.0, "fixed_target": 2500.0, "flex_target": 1500.0, "savings_target": 1000.0,
+	}
+	req := makeAuthRequest("POST", "/budget/periods", createBody, testUserID)
+	rr := execHandler(t, CreatePeriod(pool), req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var createdPeriod struct {
+		ID              string  `json:"id"`
+		CarryoverAmount float64 `json:"carryover_amount"`
+	}
+	json.NewDecoder(rr.Body).Decode(&createdPeriod)
+
+	// Add income to current period so surplus calculation works
+	txnsCurrent := []testTxn{
+		{Name: "PAYROLL", Amount: -5000, Date: "2026-04-15"},
+		{Name: "RENT", Amount: 2500, Date: "2026-04-01", Category: strPtr("RENT_AND_UTILITIES")},
+		{Name: "FOOD", Amount: 1500, Date: "2026-04-05", Category: strPtr("FOOD_AND_DRINK")},
+	}
+	seedTransactions(t, pool, testUserID, accountID, txnsCurrent)
+
+	// Withdraw from savings to cover deficit
+	withdrawBody := map[string]any{
+		"budget_period_id": createdPeriod.ID,
+		"withdrawals":      []map[string]any{{"savings_goal_id": goalID, "amount": 500.0}},
+	}
+	req = makeAuthRequest("POST", "/budget/savings-goals/withdraw", withdrawBody, testUserID)
+	rr = execHandler(t, WithdrawSavingsGoals(pool), req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("withdraw: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestIntegration_WithdrawExceedsDeficit(t *testing.T) {
+	pool := setupTestDB(t)
+	seedUser(t, pool, testUserID)
+	accountID := seedAccount(t, pool, testUserID)
+	seedCategoryMappings(t, pool)
+	goalID := seedSavingsGoal(t, pool, testUserID, "Emergency Fund", 10000, true)
+
+	// Create a period with small deficit
+	seedBudgetPeriod(t, pool, testUserID, "2026-03-01", "2026-04-01", 3000)
+	txns := []testTxn{
+		{Name: "PAYROLL", Amount: -3000, Date: "2026-03-15"},
+		{Name: "RENT", Amount: 3500, Date: "2026-03-01", Category: strPtr("RENT_AND_UTILITIES")},
+	}
+	seedTransactions(t, pool, testUserID, accountID, txns)
+
+	priorPeriodID := getPeriodID(t, pool, testUserID, "2026-03-01")
+	seedAllocation(t, pool, testUserID, priorPeriodID, goalID, 5000)
+
+	createBody := map[string]any{
+		"start_date": "2026-04-01", "end_date": "2026-05-01",
+		"income_target": 5000.0, "fixed_target": 2500.0, "flex_target": 1500.0, "savings_target": 1000.0,
+	}
+	req := makeAuthRequest("POST", "/budget/periods", createBody, testUserID)
+	rr := execHandler(t, CreatePeriod(pool), req)
+	var createdPeriod struct {
+		ID string `json:"id"`
+	}
+	json.NewDecoder(rr.Body).Decode(&createdPeriod)
+
+	// Add some income but keep deficit via carryover
+	txnsCurrent := []testTxn{
+		{Name: "PAYROLL", Amount: -5000, Date: "2026-04-15"},
+		{Name: "RENT", Amount: 2500, Date: "2026-04-01", Category: strPtr("RENT_AND_UTILITIES")},
+		{Name: "FOOD", Amount: 1500, Date: "2026-04-05", Category: strPtr("FOOD_AND_DRINK")},
+	}
+	seedTransactions(t, pool, testUserID, accountID, txnsCurrent)
+
+	// Try to withdraw more than the deficit
+	withdrawBody := map[string]any{
+		"budget_period_id": createdPeriod.ID,
+		"withdrawals":      []map[string]any{{"savings_goal_id": goalID, "amount": 99999.0}},
+	}
+	req = makeAuthRequest("POST", "/budget/savings-goals/withdraw", withdrawBody, testUserID)
+	rr = execHandler(t, WithdrawSavingsGoals(pool), req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for withdrawal exceeding deficit, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestIntegration_WithdrawExceedsGoalBalance(t *testing.T) {
+	pool := setupTestDB(t)
+	seedUser(t, pool, testUserID)
+	accountID := seedAccount(t, pool, testUserID)
+	seedCategoryMappings(t, pool)
+	goalID := seedSavingsGoal(t, pool, testUserID, "Small Fund", 100, false)
+
+	// Create deficit period
+	seedBudgetPeriod(t, pool, testUserID, "2026-03-01", "2026-04-01", 3000)
+	txns := []testTxn{
+		{Name: "PAYROLL", Amount: -3000, Date: "2026-03-15"},
+		{Name: "RENT", Amount: 5000, Date: "2026-03-01", Category: strPtr("RENT_AND_UTILITIES")},
+	}
+	seedTransactions(t, pool, testUserID, accountID, txns)
+
+	// Fill goal with only 50 (past period, seed directly)
+	priorPeriodID := getPeriodID(t, pool, testUserID, "2026-03-01")
+	seedAllocation(t, pool, testUserID, priorPeriodID, goalID, 50)
+
+	createBody := map[string]any{
+		"start_date": "2026-04-01", "end_date": "2026-05-01",
+		"income_target": 5000.0, "fixed_target": 2500.0, "flex_target": 1500.0, "savings_target": 1000.0,
+	}
+	req := makeAuthRequest("POST", "/budget/periods", createBody, testUserID)
+	rr := execHandler(t, CreatePeriod(pool), req)
+	var createdPeriod struct {
+		ID string `json:"id"`
+	}
+	json.NewDecoder(rr.Body).Decode(&createdPeriod)
+
+	// Current period also has deficit via carryover
+	txnsCurrent := []testTxn{
+		{Name: "PAYROLL", Amount: -5000, Date: "2026-04-15"},
+		{Name: "RENT", Amount: 2500, Date: "2026-04-01", Category: strPtr("RENT_AND_UTILITIES")},
+		{Name: "FOOD", Amount: 1500, Date: "2026-04-05", Category: strPtr("FOOD_AND_DRINK")},
+	}
+	seedTransactions(t, pool, testUserID, accountID, txnsCurrent)
+
+	// Try to withdraw 100 when goal balance is only 50
+	withdrawBody := map[string]any{
+		"budget_period_id": createdPeriod.ID,
+		"withdrawals":      []map[string]any{{"savings_goal_id": goalID, "amount": 100.0}},
+	}
+	req = makeAuthRequest("POST", "/budget/savings-goals/withdraw", withdrawBody, testUserID)
+	rr = execHandler(t, WithdrawSavingsGoals(pool), req)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for withdrawal exceeding goal balance, got %d: %s", rr.Code, rr.Body.String())
 	}
 }

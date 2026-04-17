@@ -90,4 +90,18 @@ final class SavingsGoalViewModel {
             return false
         }
     }
+
+    func withdrawFromGoals(withdrawals: [(savingsGoalId: String, amount: Decimal)], budgetPeriodId: String) async -> Bool {
+        do {
+            let accessToken = try await client.auth.session.accessToken
+            try await BudgetAPIService.shared.withdrawFromSavingsGoals(
+                withdrawals: withdrawals, budgetPeriodId: budgetPeriodId, accessToken: accessToken
+            )
+            await fetchGoals()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
 }

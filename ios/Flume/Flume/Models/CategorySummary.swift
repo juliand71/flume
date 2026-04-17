@@ -6,6 +6,8 @@ struct CategorySummaryResponse: Codable, Sendable {
     let endDate: String
     let categories: [CategoryEntry]
     let surplus: Decimal
+    let carryoverAmount: Decimal?
+    let effectiveSurplus: Decimal?
 }
 
 struct CategoryEntry: Codable, Identifiable, Sendable {

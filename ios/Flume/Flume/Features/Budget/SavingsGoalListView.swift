@@ -76,9 +76,13 @@ private struct UnallocatedSavingsRow: View {
 private struct SavingsGoalRow: View {
     let goal: SavingsGoal
 
+    private var effectiveAmount: Decimal {
+        goal.balance ?? goal.currentAmount
+    }
+
     private var progress: Double {
         guard goal.targetAmount > 0 else { return 0 }
-        return Double(truncating: goal.currentAmount / goal.targetAmount as NSDecimalNumber)
+        return Double(truncating: effectiveAmount / goal.targetAmount as NSDecimalNumber)
     }
 
     var body: some View {
@@ -87,15 +91,22 @@ private struct SavingsGoalRow: View {
                 if let emoji = goal.emoji {
                     Text(emoji)
                 }
-                Text(goal.name)
-                    .font(.subheadline.weight(.medium))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(goal.name)
+                        .font(.subheadline.weight(.medium))
+                    if let spent = goal.spent, spent > 0 {
+                        Text("\(spent, format: .currency(code: "USD")) spent")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 if goal.isEmergencyFund {
                     Image(systemName: "shield.fill")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
                 Spacer()
-                Text(goal.currentAmount, format: .currency(code: "USD"))
+                Text(effectiveAmount, format: .currency(code: "USD"))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Text("/")
@@ -113,7 +124,7 @@ private struct SavingsGoalRow: View {
 
                     RoundedRectangle(cornerRadius: 6)
                         .fill(Color.green)
-                        .frame(width: max(0, geometry.size.width * min(progress, 1.0)))
+                        .frame(width: max(0, geometry.size.width * min(max(progress, 0), 1.0)))
                 }
             }
             .frame(height: 10)

@@ -90,7 +90,7 @@ final class MockBudgetAPIService: BudgetAPIServiceProtocol, @unchecked Sendable 
     // MARK: - createPeriod
 
     var createPeriodResult: Result<BudgetPeriod, Error> = .success(
-        BudgetPeriod(id: UUID(), userId: UUID(), startDate: "2026-04-01", endDate: "2026-05-01", incomeTarget: 5000, fixedTarget: 1500, flexTarget: 800, savingsTarget: 2700, incomeStreamId: nil, createdAt: "2026-04-01T00:00:00Z", actualIncome: nil, actualFixed: nil, actualFlex: nil, actualSavings: nil, surplus: nil)
+        BudgetPeriod(id: UUID(), userId: UUID(), startDate: "2026-04-01", endDate: "2026-05-01", incomeTarget: 5000, fixedTarget: 1500, flexTarget: 800, savingsTarget: 2700, incomeStreamId: nil, createdAt: "2026-04-01T00:00:00Z", actualIncome: nil, actualFixed: nil, actualFlex: nil, actualSavings: nil, totalFilled: nil, surplus: nil, carryoverAmount: nil)
     )
     var createPeriodCalls: [(startDate: String, endDate: String, incomeTarget: Decimal, fixedTarget: Decimal, flexTarget: Decimal, savingsTarget: Decimal, incomeStreamId: String?, accessToken: String)] = []
 
@@ -102,12 +102,48 @@ final class MockBudgetAPIService: BudgetAPIServiceProtocol, @unchecked Sendable 
     // MARK: - createSavingsGoal
 
     var createSavingsGoalResult: Result<SavingsGoal, Error> = .success(
-        SavingsGoal(id: UUID(), userId: UUID(), name: "Emergency Fund", targetAmount: 10000, currentAmount: 0, emoji: nil, isEmergencyFund: true, priority: 0, archived: false, createdAt: "2026-04-01T00:00:00Z")
+        SavingsGoal(id: UUID(), userId: UUID(), name: "Emergency Fund", targetAmount: 10000, currentAmount: 0, spent: nil, balance: nil, emoji: nil, isEmergencyFund: true, priority: 0, archived: false, createdAt: "2026-04-01T00:00:00Z")
     )
     var createSavingsGoalCalls: [(name: String, targetAmount: Decimal, emoji: String?, isEmergencyFund: Bool, priority: Int, accessToken: String)] = []
 
     func createSavingsGoal(name: String, targetAmount: Decimal, emoji: String?, isEmergencyFund: Bool, priority: Int, accessToken: String) async throws -> SavingsGoal {
         createSavingsGoalCalls.append((name: name, targetAmount: targetAmount, emoji: emoji, isEmergencyFund: isEmergencyFund, priority: priority, accessToken: accessToken))
         return try createSavingsGoalResult.get()
+    }
+
+    // MARK: - fetchAccounts
+
+    var fetchAccountsResult: Result<[Account], Error> = .success([])
+
+    func fetchAccounts(accessToken: String) async throws -> [Account] {
+        return try fetchAccountsResult.get()
+    }
+
+    // MARK: - fillSavingsGoals
+
+    var fillSavingsGoalsResult: Result<[SavingsGoal], Error> = .success([])
+    var fillSavingsGoalsCalls: [(allocations: [(savingsGoalId: String, amount: Decimal)], budgetPeriodId: String, accessToken: String)] = []
+
+    func fillSavingsGoals(allocations: [(savingsGoalId: String, amount: Decimal)], budgetPeriodId: String, accessToken: String) async throws -> [SavingsGoal] {
+        fillSavingsGoalsCalls.append((allocations: allocations, budgetPeriodId: budgetPeriodId, accessToken: accessToken))
+        return try fillSavingsGoalsResult.get()
+    }
+
+    // MARK: - overrideTransactionCategory
+
+    var overrideTransactionCategoryResult: Result<BudgetTransaction, Error> = .success(
+        BudgetTransaction(id: UUID(), accountId: UUID(), name: "Test", amount: 10, isoCurrencyCode: "USD", date: "2026-04-01", pending: false, budgetCategory: "flex", categoryOverride: nil, savingsGoalId: nil)
+    )
+
+    func overrideTransactionCategory(id: String, budgetCategory: String, savingsGoalId: String?, accessToken: String) async throws -> BudgetTransaction {
+        return try overrideTransactionCategoryResult.get()
+    }
+
+    // MARK: - withdrawFromSavingsGoals
+
+    var withdrawFromSavingsGoalsCalls: [(withdrawals: [(savingsGoalId: String, amount: Decimal)], budgetPeriodId: String, accessToken: String)] = []
+
+    func withdrawFromSavingsGoals(withdrawals: [(savingsGoalId: String, amount: Decimal)], budgetPeriodId: String, accessToken: String) async throws {
+        withdrawFromSavingsGoalsCalls.append((withdrawals: withdrawals, budgetPeriodId: budgetPeriodId, accessToken: accessToken))
     }
 }

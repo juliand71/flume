@@ -16,6 +16,8 @@ type savingsGoal struct {
 	Name            string  `json:"name"`
 	TargetAmount    float64 `json:"target_amount"`
 	CurrentAmount   float64 `json:"current_amount"`
+	Spent           float64 `json:"spent"`
+	Balance         float64 `json:"balance"`
 	Emoji           *string `json:"emoji"`
 	IsEmergencyFund bool    `json:"is_emergency_fund"`
 	Priority        int     `json:"priority"`
@@ -33,13 +35,20 @@ func scanSavingsGoal(scan func(dest ...any) error) (savingsGoal, error) {
 	return g, err
 }
 
+
 func ListSavingsGoals(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := auth.UserID(r.Context())
 
 		rows, err := pool.Query(r.Context(), `
-			SELECT `+savingsGoalColumns+`
+			SELECT `+savingsGoalColumns+`, COALESCE(linked.total, 0) as spent
 			FROM savings_goals
+			LEFT JOIN (
+				SELECT savings_goal_id, SUM(amount) as total
+				FROM transactions_with_category
+				WHERE budget_category = 'savings' AND savings_goal_id IS NOT NULL
+				GROUP BY savings_goal_id
+			) linked ON linked.savings_goal_id = savings_goals.id
 			WHERE user_id = $1 AND archived = false
 			ORDER BY priority, created_at
 		`, userID)
@@ -51,11 +60,14 @@ func ListSavingsGoals(pool *pgxpool.Pool) http.HandlerFunc {
 
 		goals := []savingsGoal{}
 		for rows.Next() {
-			g, err := scanSavingsGoal(rows.Scan)
-			if err != nil {
+			var g savingsGoal
+			if err := rows.Scan(&g.ID, &g.UserID, &g.Name, &g.TargetAmount, &g.CurrentAmount,
+				&g.Emoji, &g.IsEmergencyFund, &g.Priority, &g.Archived, &g.CreatedAt,
+				&g.Spent); err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to scan savings goal")
 				return
 			}
+			g.Balance = g.CurrentAmount - g.Spent
 			goals = append(goals, g)
 		}
 
@@ -244,8 +256,8 @@ func FillSavingsGoals(pool *pgxpool.Pool) http.HandlerFunc {
 
 			// Record the allocation against this budget period
 			_, err = tx.Exec(r.Context(), `
-				INSERT INTO savings_goal_allocations (user_id, budget_period_id, savings_goal_id, amount)
-				VALUES ($1, $2, $3, $4)
+				INSERT INTO savings_goal_allocations (user_id, budget_period_id, savings_goal_id, amount, type)
+				VALUES ($1, $2, $3, $4, 'fill')
 			`, userID, body.BudgetPeriodID, a.SavingsGoalID, a.Amount)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to record allocation")
@@ -260,8 +272,14 @@ func FillSavingsGoals(pool *pgxpool.Pool) http.HandlerFunc {
 
 		// Return updated goals list
 		rows, err := pool.Query(r.Context(), `
-			SELECT `+savingsGoalColumns+`
+			SELECT `+savingsGoalColumns+`, COALESCE(linked.total, 0) as spent
 			FROM savings_goals
+			LEFT JOIN (
+				SELECT savings_goal_id, SUM(amount) as total
+				FROM transactions_with_category
+				WHERE budget_category = 'savings' AND savings_goal_id IS NOT NULL
+				GROUP BY savings_goal_id
+			) linked ON linked.savings_goal_id = savings_goals.id
 			WHERE user_id = $1 AND archived = false
 			ORDER BY priority, created_at
 		`, userID)
@@ -273,16 +291,182 @@ func FillSavingsGoals(pool *pgxpool.Pool) http.HandlerFunc {
 
 		goals := []savingsGoal{}
 		for rows.Next() {
-			g, err := scanSavingsGoal(rows.Scan)
-			if err != nil {
+			var g savingsGoal
+			if err := rows.Scan(&g.ID, &g.UserID, &g.Name, &g.TargetAmount, &g.CurrentAmount,
+				&g.Emoji, &g.IsEmergencyFund, &g.Priority, &g.Archived, &g.CreatedAt,
+				&g.Spent); err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to scan savings goal")
 				return
 			}
+			g.Balance = g.CurrentAmount - g.Spent
 			goals = append(goals, g)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"savings_goals": goals})
+	}
+}
+
+func WithdrawSavingsGoals(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID := auth.UserID(r.Context())
+
+		var body struct {
+			BudgetPeriodID string `json:"budget_period_id"`
+			Withdrawals    []struct {
+				SavingsGoalID string  `json:"savings_goal_id"`
+				Amount        float64 `json:"amount"`
+			} `json:"withdrawals"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if body.BudgetPeriodID == "" {
+			writeError(w, http.StatusBadRequest, "budget_period_id is required")
+			return
+		}
+		if len(body.Withdrawals) == 0 {
+			writeError(w, http.StatusBadRequest, "withdrawals is required")
+			return
+		}
+		for _, wd := range body.Withdrawals {
+			if wd.SavingsGoalID == "" {
+				writeError(w, http.StatusBadRequest, "savings_goal_id is required for each withdrawal")
+				return
+			}
+			if wd.Amount <= 0 {
+				writeError(w, http.StatusBadRequest, "amount must be positive for each withdrawal")
+				return
+			}
+		}
+
+		// Verify the period is current
+		var periodExists bool
+		err := pool.QueryRow(r.Context(), `
+			SELECT EXISTS(
+				SELECT 1 FROM budget_periods
+				WHERE id = $1 AND user_id = $2
+				AND start_date <= CURRENT_DATE AND end_date > CURRENT_DATE
+			)
+		`, body.BudgetPeriodID, userID).Scan(&periodExists)
+		if err != nil || !periodExists {
+			writeError(w, http.StatusBadRequest, "can only withdraw from the current budget period")
+			return
+		}
+
+		// Get the period to check effective surplus (must be negative = deficit)
+		var p budgetPeriod
+		err = pool.QueryRow(r.Context(), `
+			SELECT id::text, user_id::text, start_date::text, end_date::text,
+			       income_target, fixed_target, flex_target, savings_target,
+			       income_stream_id::text, carryover_amount, created_at::text
+			FROM budget_periods
+			WHERE id = $1 AND user_id = $2
+		`, body.BudgetPeriodID, userID).Scan(
+			&p.ID, &p.UserID, &p.StartDate, &p.EndDate,
+			&p.IncomeTarget, &p.FixedTarget, &p.FlexTarget, &p.SavingsTarget,
+			&p.IncomeStreamID, &p.CarryoverAmount, &p.CreatedAt,
+		)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "budget period not found")
+			return
+		}
+
+		actuals, err := periodWithActuals(r.Context(), pool, &p)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to compute actuals")
+			return
+		}
+
+		if actuals.EffectiveSurplus >= 0 {
+			writeError(w, http.StatusBadRequest, "no deficit to cover — effective surplus is not negative")
+			return
+		}
+
+		deficit := -actuals.EffectiveSurplus // positive number representing deficit
+		var totalWithdrawal float64
+		for _, wd := range body.Withdrawals {
+			totalWithdrawal += wd.Amount
+		}
+		if totalWithdrawal > deficit {
+			writeError(w, http.StatusBadRequest, "total withdrawal exceeds deficit")
+			return
+		}
+
+		// Validate each goal's balance
+		for _, wd := range body.Withdrawals {
+			var currentAmount float64
+			var spent float64
+			err := pool.QueryRow(r.Context(), `
+				SELECT sg.current_amount, COALESCE(linked.total, 0)
+				FROM savings_goals sg
+				LEFT JOIN (
+					SELECT savings_goal_id, SUM(amount) as total
+					FROM transactions_with_category
+					WHERE budget_category = 'savings' AND savings_goal_id IS NOT NULL
+					GROUP BY savings_goal_id
+				) linked ON linked.savings_goal_id = sg.id
+				WHERE sg.id = $1 AND sg.user_id = $2 AND sg.archived = false
+			`, wd.SavingsGoalID, userID).Scan(&currentAmount, &spent)
+			if err != nil {
+				writeError(w, http.StatusNotFound, "savings goal not found: "+wd.SavingsGoalID)
+				return
+			}
+			balance := currentAmount - spent
+			if wd.Amount > balance {
+				writeError(w, http.StatusBadRequest, "withdrawal exceeds goal balance for: "+wd.SavingsGoalID)
+				return
+			}
+		}
+
+		// Execute withdrawal in a transaction
+		tx, err := pool.Begin(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to begin transaction")
+			return
+		}
+		defer tx.Rollback(r.Context())
+
+		for _, wd := range body.Withdrawals {
+			// Decrement savings goal current_amount
+			_, err := tx.Exec(r.Context(), `
+				UPDATE savings_goals SET current_amount = current_amount - $3
+				WHERE id = $1 AND user_id = $2
+			`, wd.SavingsGoalID, userID, wd.Amount)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to update savings goal")
+				return
+			}
+
+			// Record withdrawal allocation
+			_, err = tx.Exec(r.Context(), `
+				INSERT INTO savings_goal_allocations (user_id, budget_period_id, savings_goal_id, amount, type)
+				VALUES ($1, $2, $3, $4, 'withdrawal')
+			`, userID, body.BudgetPeriodID, wd.SavingsGoalID, wd.Amount)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to record withdrawal")
+				return
+			}
+		}
+
+		// Increase carryover_amount to reduce the deficit
+		_, err = tx.Exec(r.Context(), `
+			UPDATE budget_periods SET carryover_amount = carryover_amount + $2
+			WHERE id = $1
+		`, body.BudgetPeriodID, totalWithdrawal)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update carryover")
+			return
+		}
+
+		if err := tx.Commit(r.Context()); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to commit transaction")
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"success": true})
 	}
 }
 
@@ -292,6 +476,7 @@ type savingsGoalAllocation struct {
 	GoalName      string  `json:"goal_name"`
 	GoalEmoji     *string `json:"goal_emoji"`
 	Amount        float64 `json:"amount"`
+	Type          string  `json:"type"`
 	CreatedAt     string  `json:"created_at"`
 }
 
@@ -302,7 +487,7 @@ func ListPeriodAllocations(pool *pgxpool.Pool) http.HandlerFunc {
 
 		rows, err := pool.Query(r.Context(), `
 			SELECT sga.id::text, sga.savings_goal_id::text, sg.name, sg.emoji,
-			       sga.amount, sga.created_at::text
+			       sga.amount, sga.type, sga.created_at::text
 			FROM savings_goal_allocations sga
 			JOIN savings_goals sg ON sg.id = sga.savings_goal_id
 			WHERE sga.user_id = $1 AND sga.budget_period_id = $2
@@ -317,7 +502,7 @@ func ListPeriodAllocations(pool *pgxpool.Pool) http.HandlerFunc {
 		allocations := []savingsGoalAllocation{}
 		for rows.Next() {
 			var a savingsGoalAllocation
-			if err := rows.Scan(&a.ID, &a.SavingsGoalID, &a.GoalName, &a.GoalEmoji, &a.Amount, &a.CreatedAt); err != nil {
+			if err := rows.Scan(&a.ID, &a.SavingsGoalID, &a.GoalName, &a.GoalEmoji, &a.Amount, &a.Type, &a.CreatedAt); err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to scan allocation")
 				return
 			}

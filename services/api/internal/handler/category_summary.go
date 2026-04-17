@@ -16,11 +16,13 @@ type categoryEntry struct {
 }
 
 type categorySummaryResponse struct {
-	PeriodID   string          `json:"period_id"`
-	StartDate  string          `json:"start_date"`
-	EndDate    string          `json:"end_date"`
-	Categories []categoryEntry `json:"categories"`
-	Surplus    float64         `json:"surplus"`
+	PeriodID         string          `json:"period_id"`
+	StartDate        string          `json:"start_date"`
+	EndDate          string          `json:"end_date"`
+	Categories       []categoryEntry `json:"categories"`
+	Surplus          float64         `json:"surplus"`
+	CarryoverAmount  float64         `json:"carryover_amount"`
+	EffectiveSurplus float64         `json:"effective_surplus"`
 }
 
 func GetCategorySummary(pool *pgxpool.Pool) http.HandlerFunc {
@@ -68,12 +70,17 @@ func GetCategorySummary(pool *pgxpool.Pool) http.HandlerFunc {
 		// Negate income to get a positive number, then subtract expenses.
 		surplus := -actuals["income"] - actuals["fixed"] - actuals["flex"]
 
+		// Refresh carryover for this period
+		carryover := refreshCarryover(r.Context(), pool, p)
+
 		resp := categorySummaryResponse{
-			PeriodID:   p.ID,
-			StartDate:  p.StartDate,
-			EndDate:    p.EndDate,
-			Categories: categories,
-			Surplus:    surplus,
+			PeriodID:         p.ID,
+			StartDate:        p.StartDate,
+			EndDate:          p.EndDate,
+			Categories:       categories,
+			Surplus:          surplus,
+			CarryoverAmount:  carryover,
+			EffectiveSurplus: surplus + carryover,
 		}
 
 		w.Header().Set("Content-Type", "application/json")

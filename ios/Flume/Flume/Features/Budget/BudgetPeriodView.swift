@@ -1,10 +1,13 @@
 import SwiftUI
+import Supabase
 
 struct BudgetPeriodView: View {
     @Bindable var viewModel: BudgetPeriodViewModel
     @State private var showingFillSheet = false
+    @State private var showingWithdrawSheet = false
     @State private var showingSuggestionSheet = false
     @State private var fillViewModel = SavingsGoalViewModel()
+    @State private var withdrawViewModel = SavingsGoalViewModel()
     @State private var allocations: [SavingsGoalAllocation] = []
 
     private var isCurrentPeriod: Bool {
@@ -104,18 +107,51 @@ struct BudgetPeriodView: View {
                         }
                         .padding(.vertical, 4)
 
-                        if isCurrentPeriod, (period.surplus ?? 0) > 0 {
+                        if let carryover = period.carryoverAmount, carryover != 0 {
+                            HStack {
+                                Text("Carryover")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text(carryover, format: .currency(code: "USD"))
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(carryover >= 0 ? .green : .red)
+                            }
+                        }
+
+                        if let effectiveSurplus = viewModel.categorySummary?.effectiveSurplus,
+                           effectiveSurplus != (period.surplus ?? 0) {
+                            HStack {
+                                Text("Effective Surplus")
+                                    .font(.subheadline.weight(.medium))
+                                Spacer()
+                                Text(effectiveSurplus, format: .currency(code: "USD"))
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(effectiveSurplus >= 0 ? .green : .red)
+                            }
+                        }
+
+                        if isCurrentPeriod, effectiveSurplusValue(for: period) > 0 {
                             Button {
                                 showingFillSheet = true
                             } label: {
                                 Label("Fund Goals", systemImage: "arrow.down.to.line")
                             }
                         }
+
+                        if isCurrentPeriod, effectiveSurplusValue(for: period) < 0 {
+                            Button {
+                                showingWithdrawSheet = true
+                            } label: {
+                                Label("Withdraw from Goals", systemImage: "arrow.up.from.line")
+                            }
+                        }
                     }
 
                     if !allocations.isEmpty {
-                        Section(isCurrentPeriod ? "Funded This Period" : "Funded Goals") {
+                        Section(isCurrentPeriod ? "Goal Activity This Period" : "Goal Activity") {
                             ForEach(allocations) { allocation in
+                                let isWithdrawal = allocation.type == "withdrawal"
                                 HStack {
                                     if let emoji = allocation.goalEmoji {
                                         Text(emoji)
@@ -123,8 +159,13 @@ struct BudgetPeriodView: View {
                                     Text(allocation.goalName)
                                         .font(.subheadline.weight(.medium))
                                     Spacer()
-                                    Text(allocation.amount, format: .currency(code: "USD"))
-                                        .foregroundStyle(.secondary)
+                                    HStack(spacing: 4) {
+                                        Image(systemName: isWithdrawal ? "arrow.up" : "arrow.down")
+                                            .font(.caption2)
+                                            .foregroundStyle(isWithdrawal ? .orange : .green)
+                                        Text(allocation.amount, format: .currency(code: "USD"))
+                                            .foregroundStyle(isWithdrawal ? .orange : .secondary)
+                                    }
                                 }
                             }
                         }
@@ -147,7 +188,17 @@ struct BudgetPeriodView: View {
             }
         }) {
             if let period = viewModel.selectedPeriod {
-                SavingsGoalFillView(viewModel: fillViewModel, surplus: period.surplus ?? 0, budgetPeriodId: period.id.uuidString)
+                SavingsGoalFillView(viewModel: fillViewModel, surplus: effectiveSurplusValue(for: period), budgetPeriodId: period.id.uuidString)
+            }
+        }
+        .sheet(isPresented: $showingWithdrawSheet, onDismiss: {
+            Task {
+                await viewModel.refresh()
+                await fetchAllocations()
+            }
+        }) {
+            if let period = viewModel.selectedPeriod {
+                SavingsGoalWithdrawView(viewModel: withdrawViewModel, deficit: abs(effectiveSurplusValue(for: period)), budgetPeriodId: period.id.uuidString)
             }
         }
         .onChange(of: viewModel.selectedPeriod?.id) {
@@ -170,6 +221,10 @@ struct BudgetPeriodView: View {
                 }
             }
         }
+    }
+
+    private func effectiveSurplusValue(for period: BudgetPeriod) -> Decimal {
+        viewModel.categorySummary?.effectiveSurplus ?? period.surplus ?? 0
     }
 
     private func fetchAllocations() async {

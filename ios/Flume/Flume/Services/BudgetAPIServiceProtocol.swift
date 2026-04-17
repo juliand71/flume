@@ -11,7 +11,9 @@ protocol BudgetAPIServiceProtocol: Sendable {
     func createPeriod(startDate: String, endDate: String, incomeTarget: Decimal, fixedTarget: Decimal, flexTarget: Decimal, savingsTarget: Decimal, incomeStreamId: String?, accessToken: String) async throws -> BudgetPeriod
     func createSavingsGoal(name: String, targetAmount: Decimal, emoji: String?, isEmergencyFund: Bool, priority: Int, accessToken: String) async throws -> SavingsGoal
     func fetchAccounts(accessToken: String) async throws -> [Account]
-    func fillSavingsGoals(allocations: [(savingsGoalId: String, amount: Decimal)], accessToken: String) async throws -> [SavingsGoal]
+    func fillSavingsGoals(allocations: [(savingsGoalId: String, amount: Decimal)], budgetPeriodId: String, accessToken: String) async throws -> [SavingsGoal]
+    func overrideTransactionCategory(id: String, budgetCategory: String, savingsGoalId: String?, accessToken: String) async throws -> BudgetTransaction
+    func withdrawFromSavingsGoals(withdrawals: [(savingsGoalId: String, amount: Decimal)], budgetPeriodId: String, accessToken: String) async throws
 }
 
 extension BudgetAPIService: BudgetAPIServiceProtocol {}

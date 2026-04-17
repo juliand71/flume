@@ -47,6 +47,7 @@ final class OnboardingViewModel {
     var periodStartDate: Date?
     var periodEndDate: Date?
     var semimonthlyHalf: Int = 1 // 1 = 1st–15th, 2 = 16th–end
+    var createdPeriodId: String?
     var biweeklyAnchorDate: Date?
     var weeklyStartDay: Int = 2 // 1=Sun..7=Sat, default Mon
 
@@ -229,7 +230,7 @@ final class OnboardingViewModel {
     func createBudgetFromConfirmedValues(accessToken: String) async -> Bool {
         guard let start = periodStartDateString, let end = periodEndDateString else { return false }
         do {
-            _ = try await budgetAPI.createPeriod(
+            let period = try await budgetAPI.createPeriod(
                 startDate: start,
                 endDate: end,
                 incomeTarget: confirmedIncomeTotal,
@@ -239,6 +240,7 @@ final class OnboardingViewModel {
                 incomeStreamId: confirmedStreams.first?.id.uuidString,
                 accessToken: accessToken
             )
+            createdPeriodId = period.id.uuidString
             return true
         } catch {
             errorMessage = "Failed to create budget: \(error.localizedDescription)"
@@ -305,8 +307,8 @@ final class OnboardingViewModel {
                     allocations.append((savingsGoalId: goal.id.uuidString, amount: fill))
                 }
             }
-            if !allocations.isEmpty {
-                _ = try await budgetAPI.fillSavingsGoals(allocations: allocations, accessToken: accessToken)
+            if !allocations.isEmpty, let periodId = createdPeriodId {
+                _ = try await budgetAPI.fillSavingsGoals(allocations: allocations, budgetPeriodId: periodId, accessToken: accessToken)
             }
             return true
         } catch {

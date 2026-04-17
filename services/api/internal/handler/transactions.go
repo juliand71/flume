@@ -20,6 +20,7 @@ type budgetTransaction struct {
 	Pending          bool    `json:"pending"`
 	BudgetCategory   string  `json:"budget_category"`
 	CategoryOverride *string `json:"category_override"`
+	SavingsGoalID    *string `json:"savings_goal_id"`
 }
 
 var validBudgetCategories = map[string]bool{
@@ -63,7 +64,7 @@ func ListTransactions(pool *pgxpool.Pool) http.HandlerFunc {
 		rows, err := pool.Query(r.Context(), `
 			SELECT t.id::text, t.account_id::text, t.name, t.amount,
 			       t.iso_currency_code, t.date::text, t.pending,
-			       t.budget_category, t.category_override
+			       t.budget_category, t.category_override, t.savings_goal_id::text
 			FROM transactions_with_category t
 			WHERE t.user_id = $1
 			  AND t.date >= $2::date AND t.date < $3::date
@@ -82,7 +83,7 @@ func ListTransactions(pool *pgxpool.Pool) http.HandlerFunc {
 			if err := rows.Scan(
 				&t.ID, &t.AccountID, &t.Name, &t.Amount,
 				&t.IsoCurrencyCode, &t.Date, &t.Pending,
-				&t.BudgetCategory, &t.CategoryOverride,
+				&t.BudgetCategory, &t.CategoryOverride, &t.SavingsGoalID,
 			); err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to scan transaction")
 				return
@@ -101,18 +102,42 @@ func OverrideTransactionCategory(pool *pgxpool.Pool) http.HandlerFunc {
 		txID := chi.URLParam(r, "id")
 
 		var body struct {
-			BudgetCategory string `json:"budget_category"`
+			BudgetCategory string  `json:"budget_category"`
+			SavingsGoalID  *string `json:"savings_goal_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !validBudgetCategories[body.BudgetCategory] {
 			writeError(w, http.StatusBadRequest, "budget_category must be one of: income, fixed, flex, savings, transfer, ignore")
 			return
 		}
 
-		// Update the override
+		// Validate savings_goal_id logic
+		if body.BudgetCategory == "savings" {
+			if body.SavingsGoalID == nil || *body.SavingsGoalID == "" {
+				writeError(w, http.StatusBadRequest, "savings_goal_id is required when budget_category is savings")
+				return
+			}
+			// Verify goal exists, belongs to user, and is not archived
+			var goalExists bool
+			err := pool.QueryRow(r.Context(), `
+				SELECT EXISTS(
+					SELECT 1 FROM savings_goals
+					WHERE id = $1 AND user_id = $2 AND archived = false
+				)
+			`, *body.SavingsGoalID, userID).Scan(&goalExists)
+			if err != nil || !goalExists {
+				writeError(w, http.StatusBadRequest, "savings goal not found or archived")
+				return
+			}
+		} else {
+			// Clear savings_goal_id when category is not savings
+			body.SavingsGoalID = nil
+		}
+
+		// Update the override and savings_goal_id
 		tag, err := pool.Exec(r.Context(), `
-			UPDATE transactions SET category_override = $3
+			UPDATE transactions SET category_override = $3, savings_goal_id = $4::uuid
 			WHERE id = $1 AND user_id = $2
-		`, txID, userID, body.BudgetCategory)
+		`, txID, userID, body.BudgetCategory, body.SavingsGoalID)
 		if err != nil || tag.RowsAffected() == 0 {
 			writeError(w, http.StatusNotFound, "transaction not found")
 			return
@@ -123,13 +148,13 @@ func OverrideTransactionCategory(pool *pgxpool.Pool) http.HandlerFunc {
 		err = pool.QueryRow(r.Context(), `
 			SELECT t.id::text, t.account_id::text, t.name, t.amount,
 			       t.iso_currency_code, t.date::text, t.pending,
-			       t.budget_category, t.category_override
+			       t.budget_category, t.category_override, t.savings_goal_id::text
 			FROM transactions_with_category t
 			WHERE t.id = $1
 		`, txID).Scan(
 			&t.ID, &t.AccountID, &t.Name, &t.Amount,
 			&t.IsoCurrencyCode, &t.Date, &t.Pending,
-			&t.BudgetCategory, &t.CategoryOverride,
+			&t.BudgetCategory, &t.CategoryOverride, &t.SavingsGoalID,
 		)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to fetch updated transaction")
