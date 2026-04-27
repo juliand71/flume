@@ -239,6 +239,45 @@ func FillSavingsGoals(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 		defer tx.Rollback(r.Context())
 
+		// Lock the budget period row to serialize concurrent fill requests
+		_, err = tx.Exec(r.Context(), `
+			SELECT 1 FROM budget_periods WHERE id = $1 AND user_id = $2 FOR UPDATE
+		`, body.BudgetPeriodID, userID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to lock budget period")
+			return
+		}
+
+		// Compute effective surplus and validate allocations don't exceed it
+		var totalRequested float64
+		for _, a := range body.Allocations {
+			totalRequested += a.Amount
+		}
+
+		var effectiveSurplus float64
+		err = tx.QueryRow(r.Context(), `
+			SELECT
+				-(coalesce(sum(t.amount) FILTER (WHERE t.budget_category = 'income'), 0))
+				- coalesce(sum(t.amount) FILTER (WHERE t.budget_category = 'fixed'), 0)
+				- coalesce(sum(t.amount) FILTER (WHERE t.budget_category = 'flex'), 0)
+				- coalesce((SELECT sum(amount) FROM savings_goal_allocations WHERE type = 'fill' AND user_id = $1 AND budget_period_id = $2::uuid), 0)
+				+ bp.carryover_amount
+			FROM budget_periods bp
+			LEFT JOIN transactions_with_category t
+				ON t.user_id = bp.user_id AND t.date >= bp.start_date::date AND t.date < bp.end_date::date
+			WHERE bp.id = $2 AND bp.user_id = $1
+			GROUP BY bp.carryover_amount
+		`, userID, body.BudgetPeriodID).Scan(&effectiveSurplus)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to compute surplus")
+			return
+		}
+
+		if totalRequested > effectiveSurplus+0.01 {
+			writeError(w, http.StatusUnprocessableEntity, "total allocations exceed available surplus")
+			return
+		}
+
 		for _, a := range body.Allocations {
 			tag, err := tx.Exec(r.Context(), `
 				UPDATE savings_goals
@@ -467,6 +506,46 @@ func WithdrawSavingsGoals(pool *pgxpool.Pool) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"success": true})
+	}
+}
+
+func ListSavingsGoalTransactions(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID := auth.UserID(r.Context())
+		goalID := chi.URLParam(r, "id")
+
+		rows, err := pool.Query(r.Context(), `
+			SELECT t.id::text, t.account_id::text, t.name, t.amount,
+			       t.iso_currency_code, t.date::text, t.pending,
+			       t.budget_category, t.category_override, t.savings_goal_id::text
+			FROM transactions_with_category t
+			WHERE t.user_id = $1
+			  AND t.savings_goal_id = $2::uuid
+			  AND t.budget_category = 'savings'
+			ORDER BY t.date DESC, t.name
+		`, userID, goalID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to query transactions")
+			return
+		}
+		defer rows.Close()
+
+		transactions := []budgetTransaction{}
+		for rows.Next() {
+			var t budgetTransaction
+			if err := rows.Scan(
+				&t.ID, &t.AccountID, &t.Name, &t.Amount,
+				&t.IsoCurrencyCode, &t.Date, &t.Pending,
+				&t.BudgetCategory, &t.CategoryOverride, &t.SavingsGoalID,
+			); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to scan transaction")
+				return
+			}
+			transactions = append(transactions, t)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"transactions": transactions})
 	}
 }
 

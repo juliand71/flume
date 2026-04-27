@@ -220,6 +220,14 @@ struct BudgetAPIService: Sendable {
         let _: Response = try await post(path: "/budget/savings-goals/withdraw", body: body, accessToken: accessToken)
     }
 
+    func fetchSavingsGoalTransactions(goalId: String, accessToken: String) async throws -> [BudgetTransaction] {
+        struct Response: Decodable {
+            let transactions: [BudgetTransaction]
+        }
+        let response: Response = try await get(path: "/budget/savings-goals/\(goalId)/transactions", accessToken: accessToken)
+        return response.transactions
+    }
+
     func fetchAllocations(periodId: String, accessToken: String) async throws -> [SavingsGoalAllocation] {
         struct Response: Decodable {
             let allocations: [SavingsGoalAllocation]

@@ -1,8 +1,11 @@
+import Supabase
 import SwiftUI
 
 struct SavingsGoalListView: View {
     @Bindable var viewModel: SavingsGoalViewModel
     @State private var showingCreateSheet = false
+    @State private var showingFillSheet = false
+    @State private var currentPeriod: BudgetPeriod?
 
     var body: some View {
         Group {
@@ -11,6 +14,15 @@ struct SavingsGoalListView: View {
                     if viewModel.unallocatedSavings > 0 {
                         Section {
                             UnallocatedSavingsRow(amount: viewModel.unallocatedSavings)
+                            Button {
+                                Task {
+                                    let accessToken = try await SupabaseService.shared.auth.session.accessToken
+                                    currentPeriod = try await BudgetAPIService.shared.fetchCurrentPeriod(accessToken: accessToken)
+                                    showingFillSheet = true
+                                }
+                            } label: {
+                                Label("Fund Goals", systemImage: "arrow.down.to.line")
+                            }
                         }
                     }
                     ForEach(viewModel.goals) { goal in
@@ -42,6 +54,14 @@ struct SavingsGoalListView: View {
         }
         .sheet(isPresented: $showingCreateSheet) {
             CreateSavingsGoalView(viewModel: viewModel)
+        }
+        .sheet(isPresented: $showingFillSheet, onDismiss: {
+            Task { await viewModel.fetchGoals() }
+        }) {
+            if let period = currentPeriod {
+                let surplus = (period.surplus ?? 0) + (period.carryoverAmount ?? 0)
+                SavingsGoalFillView(viewModel: viewModel, surplus: surplus, budgetPeriodId: period.id.uuidString)
+            }
         }
         .refreshable {
             await viewModel.fetchGoals()

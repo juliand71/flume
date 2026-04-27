@@ -1,3 +1,4 @@
+import Supabase
 import SwiftUI
 
 struct SavingsGoalFillView: View {
@@ -7,13 +8,18 @@ struct SavingsGoalFillView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var amounts: [UUID: String] = [:]
+    @State private var liveSurplus: Decimal?
+
+    private var currentSurplus: Decimal {
+        liveSurplus ?? surplus
+    }
 
     private var totalAllocated: Decimal {
         amounts.values.compactMap { Decimal(string: $0) }.reduce(0, +)
     }
 
     private var remaining: Decimal {
-        surplus - totalAllocated
+        currentSurplus - totalAllocated
     }
 
     private var allocations: [(savingsGoalId: String, amount: Decimal)] {
@@ -31,7 +37,7 @@ struct SavingsGoalFillView: View {
                         Text("Surplus")
                             .font(.headline)
                         Spacer()
-                        Text(surplus, format: .currency(code: "USD"))
+                        Text(currentSurplus, format: .currency(code: "USD"))
                             .font(.title2.weight(.semibold))
                             .foregroundStyle(.green)
                     }
@@ -85,9 +91,12 @@ struct SavingsGoalFillView: View {
                 }
             }
             .task {
-                if viewModel.goals.isEmpty {
-                    await viewModel.fetchGoals()
-                }
+                do {
+                    let accessToken = try await SupabaseService.shared.auth.session.accessToken
+                    let period = try await BudgetAPIService.shared.fetchPeriodById(budgetPeriodId, accessToken: accessToken)
+                    liveSurplus = (period.surplus ?? 0) + (period.carryoverAmount ?? 0)
+                } catch {}
+                await viewModel.fetchGoals()
             }
         }
     }

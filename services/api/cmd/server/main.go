@@ -137,6 +137,7 @@ func main() {
 		r.Post("/budget/savings-goals/fill", handler.FillSavingsGoals(pool))
 		r.Post("/budget/savings-goals/withdraw", handler.WithdrawSavingsGoals(pool))
 		r.Patch("/budget/savings-goals/{id}", handler.UpdateSavingsGoal(pool))
+		r.Get("/budget/savings-goals/{id}/transactions", handler.ListSavingsGoalTransactions(pool))
 		r.Delete("/budget/savings-goals/{id}", handler.DeleteSavingsGoal(pool))
 	})
 

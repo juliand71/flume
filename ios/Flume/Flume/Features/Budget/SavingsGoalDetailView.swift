@@ -1,4 +1,5 @@
 import SwiftUI
+import Supabase
 
 struct SavingsGoalDetailView: View {
     @Bindable var viewModel: SavingsGoalViewModel
@@ -10,6 +11,8 @@ struct SavingsGoalDetailView: View {
     @State private var emoji: String = ""
     @State private var isEmergencyFund: Bool = false
     @State private var showingDeleteConfirmation = false
+    @State private var transactions: [BudgetTransaction] = []
+    @State private var isLoadingTransactions = false
 
     private var effectiveAmount: Decimal {
         goal.balance ?? goal.currentAmount
@@ -64,6 +67,32 @@ struct SavingsGoalDetailView: View {
                 .padding(.vertical, 4)
             }
 
+            Section("Spending") {
+                if isLoadingTransactions {
+                    ProgressView()
+                } else if transactions.isEmpty {
+                    Text("No transactions linked to this goal")
+                        .foregroundStyle(.secondary)
+                        .font(.subheadline)
+                } else {
+                    ForEach(transactions) { transaction in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(transaction.name)
+                                    .lineLimit(1)
+                                Text(transaction.date)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(abs(transaction.amount), format: .currency(code: transaction.isoCurrencyCode))
+                                .fontWeight(.medium)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
+
             Section("Edit") {
                 TextField("Name", text: $name)
                 TextField("Target Amount", text: $targetAmount)
@@ -115,6 +144,17 @@ struct SavingsGoalDetailView: View {
             targetAmount = "\(goal.targetAmount)"
             emoji = goal.emoji ?? ""
             isEmergencyFund = goal.isEmergencyFund
+        }
+        .task {
+            isLoadingTransactions = true
+            do {
+                let accessToken = try await SupabaseService.shared.auth.session.accessToken
+                transactions = try await BudgetAPIService.shared.fetchSavingsGoalTransactions(
+                    goalId: goal.id.uuidString,
+                    accessToken: accessToken
+                )
+            } catch {}
+            isLoadingTransactions = false
         }
     }
 }
